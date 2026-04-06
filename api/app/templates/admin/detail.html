@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin / {{ collection }} / {{ doc_id }}</title>
+    <link rel="stylesheet" href="/static/admin.css?v=5">
+</head>
+<body>
+
+<header>
+    <h1>axes / admin / <a href="/admin/">{{ collection }}</a> / {{ doc_id }}</h1>
+    <div class="header-actions">
+        <button id="btn-edit" class="btn-edit" onclick="enterEditMode()">edit</button>
+        <button id="btn-delete" class="btn-delete" onclick="confirmDelete()">delete</button>
+        <div id="edit-actions" style="display:none; align-items:center; gap:8px;">
+            <button class="btn-save" onclick="saveEdit()">save</button>
+            <button class="btn-cancel" onclick="cancelEdit()">cancel</button>
+        </div>
+        <a href="/admin/logout">logout</a>
+    </div>
+</header>
+
+<script>
+const ID_FIELD = "{{ id_field }}";
+const originalDoc = {{ doc_js | default({}) | tojson }};
+
+function enterEditMode() {
+    document.querySelectorAll('tr[data-key]').forEach(row => {
+        const key = row.dataset.key;
+        if (key === ID_FIELD) return;
+        const val = originalDoc[key];
+        const cell = row.querySelector('.detail-value');
+        const iLink = cell.querySelector('.entry-info');
+        const iLinkHtml = iLink ? iLink.outerHTML : '';
+
+        let inputHtml;
+        if (val === null || val === undefined) {
+            inputHtml = `<input class="edit-input" data-type="string" name="${key}" type="text" value="" placeholder="(null)">`;
+        } else if (typeof val === 'boolean') {
+            inputHtml = `<select class="edit-input" data-type="boolean" name="${key}">
+                <option value="true"${val === true ? ' selected' : ''}>true</option>
+                <option value="false"${val === false ? ' selected' : ''}>false</option>
+                <option value="null">null</option>
+            </select>`;
+        } else if (typeof val === 'number') {
+            inputHtml = `<input class="edit-input" data-type="number" name="${key}" type="number" value="${val}">`;
+        } else {
+            const escaped = String(val).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+            inputHtml = `<input class="edit-input" data-type="string" name="${key}" type="text" value="${escaped}">`;
+        }
+        cell.innerHTML = inputHtml + iLinkHtml;
+    });
+
+    document.getElementById('btn-edit').style.display = 'none';
+    document.getElementById('btn-delete').style.display = 'none';
+    document.getElementById('edit-actions').style.display = 'flex';
+}
+
+async function saveEdit() {
+    const body = {};
+    document.querySelectorAll('.edit-input').forEach(inp => {
+        const key = inp.name;
+        const dtype = inp.dataset.type;
+        const raw = inp.value;
+        let val;
+        if (dtype === 'boolean') {
+            val = raw === 'null' ? null : raw === 'true';
+        } else if (dtype === 'number') {
+            val = raw === '' ? null : Number(raw);
+        } else {
+            val = raw === '' ? null : raw;
+        }
+        body[key] = val;
+    });
+
+    const resp = await fetch("/admin/{{ collection }}/{{ doc_id }}", {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+        window.location.reload();
+    } else {
+        const err = await resp.json().catch(() => ({}));
+        alert("Save failed: " + (err.detail || resp.status));
+    }
+}
+
+function cancelEdit() {
+    window.location.reload();
+}
+
+async function confirmDelete() {
+    if (!confirm("Delete this {{ collection | replace('s', '') }} permanently?")) return;
+    const resp = await fetch("/admin/{{ collection }}/{{ doc_id }}", { method: "DELETE" });
+    if (resp.ok || resp.status === 204) {
+        window.location.href = "/admin/";
+    } else {
+        const body = await resp.json().catch(() => ({}));
+        alert("Delete failed: " + (body.detail || resp.status));
+    }
+}
+</script>
+
+<div class="detail-page">
+
+    {% set id_links = {
+        "event_id": "events",
+        "match_id": "matches",
+        "round_id": "rounds",
+        "throw_id": "throws",
+        "user_id": "users",
+        "player_id": "players",
+        "player_1_id": "players",
+        "player_2_id": "players"
+    } %}
+
+    {% if error %}
+    <div class="detail-error">{{ error }}</div>
+    {% else %}
+
+    {# ── Main document fields ── #}
+    <table class="detail-table">
+        {% for key, value in doc.items() %}
+        <tr data-key="{{ key }}">
+            <td class="detail-key">{{ key }}</td>
+            <td class="detail-value">
+                {% if value is none %}
+                <span class="detail-null">null</span>
+                {% elif value == true %}
+                <span class="detail-bool detail-true">true</span>
+                {% elif value == false %}
+                <span class="detail-bool detail-false">false</span>
+                {% else %}
+                {{ value }}
+                {% endif %}
+                {% if key in id_links and value %}
+                <a class="entry-info" href="/admin/{{ id_links[key] }}/{{ value }}">i</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    {# ── Player cards ── #}
+    {% if collection == "throws" and doc.player_id %}
+        {% set _players = doc.player_id | find_related("players", "player_id", "created_at") %}
+        {% if _players %}{% with p = _players[0] %}
+        <div class="related-section">
+            <div class="related-header">Player</div>
+            {% include "admin/_player_card.html" %}
+        </div>
+        {% endwith %}{% endif %}
+    {% endif %}
+
+    {% if collection in ("matches", "rounds") %}
+        {% if doc.player_1_id %}
+            {% set _players = doc.player_1_id | find_related("players", "player_id", "created_at") %}
+            {% if _players %}{% with p = _players[0] %}
+            <div class="related-section">
+                <div class="related-header">Player 1</div>
+                {% include "admin/_player_card.html" %}
+            </div>
+            {% endwith %}{% endif %}
+        {% endif %}
+        {% if doc.player_2_id %}
+            {% set _players = doc.player_2_id | find_related("players", "player_id", "created_at") %}
+            {% if _players %}{% with p = _players[0] %}
+            <div class="related-section">
+                <div class="related-header">Player 2</div>
+                {% include "admin/_player_card.html" %}
+            </div>
+            {% endwith %}{% endif %}
+        {% endif %}
+    {% endif %}
+
+    {# ── Child collections ── #}
+    {% if collection == "events" %}
+        {% set children = doc.event_id | find_related("matches", "event_id") %}
+        {% if children %}
+        <div class="related-section">
+            <div class="related-header">Matches ({{ children | length }})</div>
+            <table class="related-table">
+                <thead><tr><th></th><th>id</th><th>players</th><th>seq</th><th>timestamp</th><th>status</th></tr></thead>
+                <tbody>
+                {% for r in children %}
+                <tr>
+                    <td><a class="entry-info" href="/admin/matches/{{ r.match_id }}">i</a></td>
+                    <td class="related-id">{{ r.match_id }}</td>
+                    <td>{{ r.player_1_id }} vs {{ r.player_2_id }}</td>
+                    <td>{{ r.sequence }}</td>
+                    <td class="ts">{{ r.timestamp | datetimeformat }}</td>
+                    <td>
+                        {% if r.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                        {% if r.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+    {% elif collection == "matches" %}
+        {% set children = doc.match_id | find_related("rounds", "match_id", "timestamp") %}
+        {% if children %}
+        <div class="related-section">
+            <div class="related-header">Rounds ({{ children | length }})</div>
+            <table class="related-table">
+                <thead><tr><th></th><th>id</th><th>players</th><th>seq</th><th>timestamp</th><th>status</th></tr></thead>
+                <tbody>
+                {% for r in children %}
+                <tr>
+                    <td><a class="entry-info" href="/admin/rounds/{{ r.round_id }}">i</a></td>
+                    <td class="related-id">{{ r.round_id }}</td>
+                    <td>{{ r.player_1_id }} vs {{ r.player_2_id }}</td>
+                    <td>{{ r.sequence }}</td>
+                    <td class="ts">{{ r.timestamp | datetimeformat }}</td>
+                    <td>{% if r.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+    {% elif collection == "rounds" %}
+        {% set children = doc.round_id | find_related("throws", "round_id") %}
+        {% if children %}
+        <div class="related-section">
+            <div class="related-header">Throws ({{ children | length }})</div>
+            <table class="related-table">
+                <thead><tr><th></th><th>id</th><th>player</th><th>pts</th><th>timestamp</th><th>flags</th></tr></thead>
+                <tbody>
+                {% for r in children %}
+                <tr>
+                    <td><a class="entry-info" href="/admin/throws/{{ r.throw_id }}">i</a></td>
+                    <td class="related-id">{{ r.throw_id }}</td>
+                    <td>{{ r.player_id }}</td>
+                    <td>{{ r.points }}</td>
+                    <td class="ts">{{ r.timestamp | datetimeformat }}</td>
+                    <td>
+                        {% if r.is_drop %}<span class="badge badge-drop">drop</span>{% endif %}
+                        {% if r.clutch_called %}<span class="badge badge-clutch">clutch</span>{% endif %}
+                        {% if r.is_premier %}<span class="badge badge-premier">premier</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+    {% elif collection == "players" %}
+        {% set matches = doc.player_id | find_player_matches() %}
+        {% if matches %}
+        <div class="related-section">
+            <div class="related-header">Matches ({{ matches | length }})</div>
+            <table class="related-table">
+                <thead><tr><th></th><th>id</th><th>players</th><th>seq</th><th>timestamp</th><th>status</th></tr></thead>
+                <tbody>
+                {% for r in matches %}
+                <tr>
+                    <td><a class="entry-info" href="/admin/matches/{{ r.match_id }}">i</a></td>
+                    <td class="related-id">{{ r.match_id }}</td>
+                    <td>{{ r.player_1_id }} vs {{ r.player_2_id }}</td>
+                    <td>{{ r.sequence }}</td>
+                    <td class="ts">{{ r.timestamp | datetimeformat }}</td>
+                    <td>
+                        {% if r.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                        {% if r.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {% set throws = doc.player_id | find_related("throws", "player_id") %}
+        {% if throws %}
+        <div class="related-section">
+            <div class="related-header">Throws ({{ throws | length }})</div>
+            <table class="related-table">
+                <thead><tr><th></th><th>id</th><th>pts</th><th>round</th><th>timestamp</th><th>flags</th></tr></thead>
+                <tbody>
+                {% for r in throws %}
+                <tr>
+                    <td><a class="entry-info" href="/admin/throws/{{ r.throw_id }}">i</a></td>
+                    <td class="related-id">{{ r.throw_id }}</td>
+                    <td>{{ r.points }}</td>
+                    <td class="related-id">{{ r.round_id }}</td>
+                    <td class="ts">{{ r.timestamp | datetimeformat }}</td>
+                    <td>
+                        {% if r.is_drop %}<span class="badge badge-drop">drop</span>{% endif %}
+                        {% if r.clutch_called %}<span class="badge badge-clutch">clutch</span>{% endif %}
+                        {% if r.is_premier %}<span class="badge badge-premier">premier</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    {% endif %}
+
+    {% endif %}{# end if error #}
+
+</div>
+
+</body>
+</html>

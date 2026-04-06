@@ -1,0 +1,56 @@
+[
+  {
+    "db": "axes",
+    "collection": "users",
+    "keys": {"username": 1, "email": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "throws",
+    "keys": {"throw_id": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "rounds",
+    "keys": {"round_id": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "rounds",
+    "keys": {"match_id": 1},
+    "unique": false
+  },
+  {
+    "db": "axes",
+    "collection": "matches",
+    "keys": {"match_id": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "matches",
+    "keys": {"event_id": 1},
+    "unique": false
+  },
+  {
+    "db": "axes",
+    "collection": "events",
+    "keys": {"event_id": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "players",
+    "keys": {"player_id": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "players",
+    "keys": {"player_name": 1},
+    "unique": true
+  }
+]

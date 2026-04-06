@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Login</title>
+</head>
+<body>
+    <h1>Admin Login</h1>
+    {% if error %}
+    <p style="color:red">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/admin/login" id="login-form">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+        <input type="hidden" name="credentials" id="credentials">
+        <button type="submit">Login</button>
+    </form>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', function (e) {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            document.getElementById('credentials').value = btoa(username + ':' + password);
+        });
+    </script>
+</body>
+</html>
