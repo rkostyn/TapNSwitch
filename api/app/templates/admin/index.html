@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin</title>
+    <link rel="stylesheet" href="/static/admin.css?v=5">
+</head>
+<body>
+
+<header>
+    <h1>axes / admin</h1>
+    <a href="/admin/logout">logout</a>
+</header>
+
+<div class="grid">
+
+    <!-- EVENTS -->
+    <div class="col">
+        <div class="col-header">Events</div>
+        <div class="col-body">
+            {% for row in "events" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/events/{{ row.event_id }}">i</a>
+                <div class="id">{{ row.event_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                {% if row.venue_id %}<div class="detail">venue: {{ row.venue_id }}</div>{% endif %}
+                <div>
+                    {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                    {% if row.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No events found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- MATCHES -->
+    <div class="col">
+        <div class="col-header">Matches</div>
+        <div class="col-body">
+            {% for row in "matches" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/matches/{{ row.match_id }}">i</a>
+                <div class="id">{{ row.match_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
+                <div>
+                    {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                    {% if row.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No matches found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- ROUNDS -->
+    <div class="col">
+        <div class="col-header">Rounds</div>
+        <div class="col-body">
+            {% for row in "rounds" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/rounds/{{ row.round_id }}">i</a>
+                <div class="id">{{ row.round_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
+                {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No rounds found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- THROWS -->
+    <div class="col">
+        <div class="col-header">Throws</div>
+        <div class="col-body">
+            {% for row in "throws" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/throws/{{ row.throw_id }}">i</a>
+                <div class="id">{{ row.throw_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">player: {{ row.player_id }}</div>
+                <div class="detail">pts: {{ row.points }}</div>
+                <div>
+                    {% if row.is_drop %}<span class="badge badge-drop">drop</span>{% endif %}
+                    {% if row.clutch_called %}<span class="badge badge-clutch">clutch</span>{% endif %}
+                    {% if row.is_premier %}<span class="badge badge-premier">premier</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No throws found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- PLAYERS -->
+    <div class="col">
+        <div class="col-header">Players</div>
+        <div class="col-body">
+            {% for row in "players" | retrieve_x_latest(25, "created_at") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/players/{{ row.player_id }}">i</a>
+                <div class="id">{{ row.player_id }}</div>
+                <div class="detail">{{ row.player_name }}</div>
+                {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No players found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="col">
+        <div class="col-header">Users</div>
+        <div class="col-body">
+            {% for row in "users" | retrieve_x_latest(25, "created_at") %}
+            <div class="entry">
+                <a class="entry-info" href="/admin/users/{{ row.user_id }}">i</a>
+                <div class="id">{{ row.user_name }}</div>
+                <div class="detail">{{ row.email }}</div>
+                {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No users found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>

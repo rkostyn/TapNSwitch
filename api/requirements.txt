@@ -1,0 +1,8 @@
+fastapi[standard]
+pymongo
+redis
+httpx
+pytest-asyncio
+pytest
+bcrypt
+prometheus-fastapi-instrumentator
