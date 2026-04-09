@@ -29,9 +29,7 @@ def rate_limit(limit: int, window: int = 60):
         client_ip = request.client.host
         key = f"rate_limit:{request.url.path}:{client_ip}"
         redis = get_redis_client(request)
-        count = await redis.incr(key)
-        if count == 1:
-            await redis.expire(key, window)
+        count = await redis.incr_with_expire(key, window)
         if count > limit:
             logger.warning("Rate limit exceeded for %s on %s", client_ip, request.url.path)
             raise HTTPException(status_code=429, detail="Too many requests")

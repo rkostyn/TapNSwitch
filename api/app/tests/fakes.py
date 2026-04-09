@@ -298,6 +298,14 @@ class FakeRedisClient:
         self._counters[key] = self._counters.get(key, 0) + 1
         return self._counters[key]
 
+    async def incr_with_expire(self, key: str, window: int) -> int:
+        if self._expired(key):
+            self._evict(key)
+        self._counters[key] = self._counters.get(key, 0) + 1
+        if self._counters[key] == 1:
+            self._expires[key] = time.monotonic() + window
+        return self._counters[key]
+
     async def expire(self, key: str, seconds: int):
         if key in self._store or key in self._counters:
             self._expires[key] = time.monotonic() + seconds

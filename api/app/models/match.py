@@ -1,13 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 
 class MatchCreate(BaseModel):
-    event_id: Optional[str] = None
-    player_1_id: str
-    player_2_id: str
-    sequence: int
+    event_id: Optional[str] = Field(default=None, max_length=64)
+    player_1_id: str = Field(min_length=1, max_length=64)
+    player_2_id: str = Field(min_length=1, max_length=64)
+    sequence: int = Field(ge=1)
 
 
 class Match(BaseModel):

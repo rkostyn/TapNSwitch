@@ -26,11 +26,11 @@ async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient 
     logger.info("Register attempt")
     db = await mongo_client.get_database('axes')
     # Check if registration token is valid
-    token = await db['registration_tokens'].find_one_and_delete({"token": body.registration_token})
-    if not token:
+    token_doc = await db['registration_tokens'].find_one({"token": body.registration_token})
+    if not token_doc:
         logger.warning("Invalid registration token")
         raise HTTPException(status_code=400, detail="Invalid registration token")
-    # Create user
+    # Create user — only consume the token after success so failures don't burn it
     repo = UserRepository(mongo_client)
     try:
         user_create = UserCreate(
@@ -40,6 +40,7 @@ async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient 
             registration_token=body.registration_token
         )
         user = await repo.create_user(user_create)
+        await db['registration_tokens'].delete_one({"token": body.registration_token})
         logger.info("User registered successfully")
         return RegisterResponse(
             user_id=user.user_id,

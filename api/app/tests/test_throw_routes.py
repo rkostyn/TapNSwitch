@@ -149,3 +149,43 @@ def test_delete_throw_unauthenticated(client, auth_token):
     throw_id = client.post("/throw/submit", json=make_throw_payload(match_id, round_id), headers=auth_headers(auth_token)).json()["throw_id"]
     response = client.delete(f"/throw/{throw_id}")
     assert response.status_code == 401
+
+
+def test_submit_throw_negative_points(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    response = client.post(
+        "/throw/submit",
+        json={**make_throw_payload(match_id, round_id), "points": -1},
+        headers=auth_headers(auth_token),
+    )
+    assert response.status_code == 422
+
+
+def test_submit_throw_player_id_too_long(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    response = client.post(
+        "/throw/submit",
+        json={**make_throw_payload(match_id, round_id), "player_id": "p" * 65},
+        headers=auth_headers(auth_token),
+    )
+    assert response.status_code == 422
+
+
+def test_submit_throw_ignores_client_throw_id(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    payload = {**make_throw_payload(match_id, round_id), "throw_id": "client-chosen-id"}
+    response = client.post("/throw/submit", json=payload, headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    assert response.json()["throw_id"] != "client-chosen-id"
+
+
+def test_submit_throw_ignores_client_timestamp(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    payload = {**make_throw_payload(match_id, round_id), "timestamp": "2000-01-01T00:00:00"}
+    throw_id = client.post("/throw/submit", json=payload, headers=auth_headers(auth_token)).json()["throw_id"]
+    throw = client.get(f"/throw/{throw_id}").json()
+    assert not throw["timestamp"].startswith("2000-")

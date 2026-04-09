@@ -30,6 +30,8 @@ async def submit_throw(body: ThrowSubmit = Body(...), current_user: str = Depend
         event = await event_repo.get_event(match.event_id)
         if event and event.is_finished:
             raise HTTPException(status_code=423, detail="Event is finished")
+    body.throw_id = None
+    body.timestamp = None
     r = ThrowRepository(mongo_client)
     success = await r.submit_throw(body)
     if success:

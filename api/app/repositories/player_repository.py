@@ -17,6 +17,10 @@ class PlayerRepository:
 
     async def create_player(self, player_create: PlayerCreate) -> Player:
         collection = await self._collection()
+        existing = await collection.find_one({"player_name": player_create.player_name})
+        if existing:
+            logger.warning("Player creation failed — name already exists")
+            raise ValueError("A player with that name already exists")
         player_id = str(uuid.uuid4())
         created_at = datetime.now(UTC)
         doc = {

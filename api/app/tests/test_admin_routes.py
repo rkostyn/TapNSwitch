@@ -198,6 +198,31 @@ def test_patch_admin_doc_empty_body_after_denylist_strip(client, auth_token):
     assert response.status_code == 400
 
 
+def test_patch_admin_doc_non_allowlisted_field_rejected(client, auth_token):
+    event_id = client.post("/event", json={"venue_id": "allowlist_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    # event_id is not in the allowlist for events — should be filtered, leaving empty body → 400
+    response = client.patch(
+        f"/admin/events/{event_id}",
+        json={"event_id": "new-fake-id"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 400
+
+
+def test_patch_admin_doc_mixed_strips_non_allowlisted(client, auth_token):
+    event_id = client.post("/event", json={"venue_id": "mixed_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    # venue_id is allowed; event_id is not — only venue_id should be applied
+    response = client.patch(
+        f"/admin/events/{event_id}",
+        json={"venue_id": "updated_venue", "event_id": "fake-id"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    data = client.get(f"/event/{event_id}").json()
+    assert data["venue_id"] == "updated_venue"
+    assert data["event_id"] == event_id  # unchanged
+
+
 def test_patch_admin_doc_success(client, auth_token):
     event_id = client.post("/event", json={"venue_id": "original_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.patch(
@@ -287,3 +312,282 @@ def test_get_admin_detail_user_excludes_password_hash(client):
     response = client.get("/admin/users/test-user-id-fixed", cookies=admin_cookies())
     assert response.status_code == 200
     assert b"password_hash" not in response.content
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/users/create
+# ---------------------------------------------------------------------------
+
+def test_get_create_user_unauthenticated(client):
+    response = client.get("/admin/users/create", follow_redirects=False)
+    assert response.status_code == 302
+    assert "login" in response.headers["location"]
+
+
+def test_get_create_user_authenticated(client):
+    response = client.get("/admin/users/create", cookies=admin_cookies())
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/create
+# ---------------------------------------------------------------------------
+
+def test_post_create_user_unauthenticated(client):
+    response = client.post(
+        "/admin/users/create",
+        data={"user_name": "newuser", "email": "new@example.com", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert "login" in response.headers["location"]
+
+
+def test_post_create_user_success_redirects(client):
+    response = client.post(
+        "/admin/users/create",
+        data={"user_name": "created_user_1", "email": "created1@example.com", "password": "secret123"},
+        cookies=admin_cookies(),
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["location"].endswith("/admin/")
+
+
+def test_post_create_user_generated_password(client):
+    # Omitting password triggers auto-generation; page shows it instead of redirecting
+    response = client.post(
+        "/admin/users/create",
+        data={"user_name": "created_user_2", "email": "created2@example.com"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert b"created_user_2" in response.content
+
+
+def test_post_create_user_as_admin_flag(client):
+    response = client.post(
+        "/admin/users/create",
+        data={"user_name": "admin_created", "email": "admincreated@example.com", "password": "secret123", "is_admin": "true"},
+        cookies=admin_cookies(),
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+
+def test_post_create_user_duplicate_shows_error(client):
+    # Seed the first creation
+    client.post(
+        "/admin/users/create",
+        data={"user_name": "dup_admin_user", "email": "dupadmin@example.com", "password": "secret123"},
+        cookies=admin_cookies(),
+    )
+    # Second attempt with same username should render an error on the form page
+    response = client.post(
+        "/admin/users/create",
+        data={"user_name": "dup_admin_user", "email": "dupadmin2@example.com", "password": "secret123"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert b"already exists" in response.content.lower() or b"error" in response.content.lower()
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/events/create
+# ---------------------------------------------------------------------------
+
+def test_get_create_event_unauthenticated(client):
+    response = client.get("/admin/events/create", follow_redirects=False)
+    assert response.status_code == 302
+    assert "login" in response.headers["location"]
+
+
+def test_get_create_event_authenticated(client):
+    response = client.get("/admin/events/create", cookies=admin_cookies())
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/events/create
+# ---------------------------------------------------------------------------
+
+def test_post_create_event_unauthenticated(client):
+    response = client.post(
+        "/admin/events/create",
+        data={"venue_id": "test_venue"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert "login" in response.headers["location"]
+
+
+def test_post_create_event_success_redirects(client):
+    response = client.post(
+        "/admin/events/create",
+        data={"venue_id": "new_venue_1"},
+        cookies=admin_cookies(),
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["location"].endswith("/admin/")
+
+
+def test_post_create_event_with_timestamp(client):
+    response = client.post(
+        "/admin/events/create",
+        data={"venue_id": "new_venue_2", "start_timestamp": "2026-06-01T10:00"},
+        cookies=admin_cookies(),
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+
+def test_post_create_event_invalid_timestamp(client):
+    response = client.post(
+        "/admin/events/create",
+        data={"venue_id": "new_venue_3", "start_timestamp": "not-a-date"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert b"invalid" in response.content.lower()
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/create/event  (JSON API used by modal)
+# ---------------------------------------------------------------------------
+
+def test_admin_create_event_json_unauthenticated(client):
+    response = client.post("/admin/create/event", json={"venue_id": "v1"})
+    assert response.status_code == 401
+
+
+def test_admin_create_event_json_success(client):
+    response = client.post("/admin/create/event", json={"venue_id": "v1"}, cookies=admin_cookies())
+    assert response.status_code == 200
+    assert "event_id" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/create/match  (JSON API)
+# ---------------------------------------------------------------------------
+
+def test_admin_create_match_json_unauthenticated(client):
+    response = client.post(
+        "/admin/create/match",
+        json={"player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+    )
+    assert response.status_code == 401
+
+
+def test_admin_create_match_json_success(client):
+    response = client.post(
+        "/admin/create/match",
+        json={"player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert "match_id" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/create/round  (JSON API)
+# ---------------------------------------------------------------------------
+
+def test_admin_create_round_json_unauthenticated(client, auth_token):
+    match_id = client.post(
+        "/match",
+        json={"player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    ).json()["match_id"]
+    response = client.post(
+        "/admin/create/round",
+        json={"match_id": match_id, "player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+    )
+    assert response.status_code == 401
+
+
+def test_admin_create_round_json_success(client, auth_token):
+    match_id = client.post(
+        "/match",
+        json={"player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    ).json()["match_id"]
+    response = client.post(
+        "/admin/create/round",
+        json={"match_id": match_id, "player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert "round_id" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/create/throw  (JSON API)
+# ---------------------------------------------------------------------------
+
+def _make_match_and_round(client, auth_token):
+    match_id = client.post(
+        "/match",
+        json={"player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    ).json()["match_id"]
+    round_id = client.post(
+        "/round",
+        json={"match_id": match_id, "player_1_id": "p1", "player_2_id": "p2", "sequence": 1},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    ).json()["round_id"]
+    return match_id, round_id
+
+
+def test_admin_create_throw_json_unauthenticated(client, auth_token):
+    match_id, round_id = _make_match_and_round(client, auth_token)
+    response = client.post(
+        "/admin/create/throw",
+        json={"match_id": match_id, "round_id": round_id, "player_id": "p1", "points": 3},
+    )
+    assert response.status_code == 401
+
+
+def test_admin_create_throw_json_success(client, auth_token):
+    match_id, round_id = _make_match_and_round(client, auth_token)
+    response = client.post(
+        "/admin/create/throw",
+        json={"match_id": match_id, "round_id": round_id, "player_id": "p1", "points": 3},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert "throw_id" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/create/player  (JSON API)
+# ---------------------------------------------------------------------------
+
+def test_admin_create_player_json_unauthenticated(client):
+    response = client.post("/admin/create/player", json={"player_name": "New Player"})
+    assert response.status_code == 401
+
+
+def test_admin_create_player_json_success(client):
+    response = client.post(
+        "/admin/create/player",
+        json={"player_name": "Admin Created Player"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 200
+    assert "player_id" in response.json()
+
+
+def test_admin_create_player_json_duplicate(client):
+    client.post(
+        "/admin/create/player",
+        json={"player_name": "Dup Admin Player"},
+        cookies=admin_cookies(),
+    )
+    response = client.post(
+        "/admin/create/player",
+        json={"player_name": "Dup Admin Player"},
+        cookies=admin_cookies(),
+    )
+    assert response.status_code == 400
+    assert "detail" in response.json()

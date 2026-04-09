@@ -3,6 +3,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import base64
 import binascii
 import hashlib
+import secrets
+import string
 from datetime import datetime
 
 from app.dependencies import create_access_token, get_mongo_client, get_redis_client
@@ -13,6 +15,11 @@ from app.repositories.round_repository import RoundRepository
 from app.repositories.throw_repository import ThrowRepository
 from app.repositories.player_repository import PlayerRepository
 from app.repositories.user_repository import UserRepository
+from app.models.event import EventCreate
+from app.models.match import MatchCreate
+from app.models.round import RoundCreate
+from app.models.throw import ThrowSubmit
+from app.models.player import PlayerCreate
 from app.logger import get_logger
 from app.templates import templates
 
@@ -119,6 +126,15 @@ _COLLECTION_ID_FIELD = {
 }
 
 
+_PATCH_ALLOWLIST: dict[str, set[str]] = {
+    "events":  {"venue_id", "start_timestamp", "is_locked", "locked_by", "locked_at", "is_finished", "finished_at"},
+    "matches": {"event_id", "player_1_id", "player_2_id", "sequence", "is_locked", "locked_by", "locked_at", "is_finished", "finished_at"},
+    "rounds":  {"match_id", "player_1_id", "player_2_id", "sequence", "is_locked", "locked_by", "locked_at"},
+    "throws":  {"match_id", "round_id", "player_id", "event_id", "venue_id", "points", "clutch_called", "is_premier", "is_drop", "timestamp"},
+    "players": {"player_name", "user_id"},
+    "users":   {"user_name", "email"},
+}
+
 _REPO_DELETE = {
     "events":  lambda mc: EventRepository(mc).delete_event,
     "matches": lambda mc: MatchRepository(mc).delete_match,
@@ -127,6 +143,161 @@ _REPO_DELETE = {
     "players": lambda mc: PlayerRepository(mc).delete_player,
     "users":   lambda mc: UserRepository(mc).delete_user,
 }
+
+
+@router.get("/users/create")
+async def get_create_user(request: Request, redis_client: RedisClient = Depends(get_redis_client)):
+    if not await _get_admin_user(request, redis_client):
+        return _LOGIN_REDIRECT
+    return templates.TemplateResponse(request=request, name="admin/create_user.html")
+
+
+@router.post("/users/create")
+async def post_create_user(
+    request: Request,
+    user_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(""),
+    is_admin: str = Form("false"),
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return _LOGIN_REDIRECT
+
+    generated_password = None
+    if not password:
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        generated_password = "".join(secrets.choice(alphabet) for _ in range(16))
+        password = generated_password
+
+    repo = UserRepository(mongo_client)
+    try:
+        await repo.create_user_admin(user_name.strip(), email.strip(), password, is_admin=(is_admin == "true"))
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request=request,
+            name="admin/create_user.html",
+            context={"error": str(e), "user_name": user_name, "email": email},
+        )
+
+    if generated_password:
+        return templates.TemplateResponse(
+            request=request,
+            name="admin/create_user.html",
+            context={"generated_password": generated_password, "created_user_name": user_name.strip()},
+        )
+
+    return RedirectResponse(url="/admin/", status_code=302)
+
+
+@router.get("/events/create")
+async def get_create_event(request: Request, redis_client: RedisClient = Depends(get_redis_client)):
+    if not await _get_admin_user(request, redis_client):
+        return _LOGIN_REDIRECT
+    return templates.TemplateResponse(request=request, name="admin/create_event.html")
+
+
+@router.post("/events/create")
+async def post_create_event(
+    request: Request,
+    venue_id: str = Form(...),
+    start_timestamp: str = Form(""),
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return _LOGIN_REDIRECT
+
+    ts = None
+    if start_timestamp:
+        try:
+            ts = datetime.fromisoformat(start_timestamp)
+        except ValueError:
+            return templates.TemplateResponse(
+                request=request,
+                name="admin/create_event.html",
+                context={"error": "Invalid timestamp format", "venue_id": venue_id},
+            )
+
+    repo = EventRepository(mongo_client)
+    await repo.create_event(EventCreate(venue_id=venue_id.strip(), start_timestamp=ts))
+    return RedirectResponse(url="/admin/", status_code=302)
+
+
+@router.post("/create/event")
+async def admin_create_event(
+    request: Request,
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    body = await request.json()
+    repo = EventRepository(mongo_client)
+    event = await repo.create_event(EventCreate(**body))
+    return JSONResponse(status_code=200, content={"event_id": event.event_id})
+
+
+@router.post("/create/match")
+async def admin_create_match(
+    request: Request,
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    body = await request.json()
+    repo = MatchRepository(mongo_client)
+    match = await repo.create_match(MatchCreate(**body))
+    return JSONResponse(status_code=200, content={"match_id": match.match_id})
+
+
+@router.post("/create/round")
+async def admin_create_round(
+    request: Request,
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    body = await request.json()
+    repo = RoundRepository(mongo_client)
+    round_ = await repo.create_round(RoundCreate(**body))
+    return JSONResponse(status_code=200, content={"round_id": round_.round_id})
+
+
+@router.post("/create/throw")
+async def admin_create_throw(
+    request: Request,
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    body = await request.json()
+    repo = ThrowRepository(mongo_client)
+    result = await repo.submit_throw(ThrowSubmit(**body))
+    if result:
+        return JSONResponse(status_code=200, content={"throw_id": result["throw_id"]})
+    return JSONResponse(status_code=500, content={"detail": "Failed to submit throw"})
+
+
+@router.post("/create/player")
+async def admin_create_player(
+    request: Request,
+    redis_client: RedisClient = Depends(get_redis_client),
+    mongo_client=Depends(get_mongo_client),
+):
+    if not await _get_admin_user(request, redis_client):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    body = await request.json()
+    repo = PlayerRepository(mongo_client)
+    try:
+        player = await repo.create_player(PlayerCreate(**body))
+        return JSONResponse(status_code=200, content={"player_id": player.player_id})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"detail": str(e)})
 
 
 @router.patch("/{collection}/{doc_id}")
@@ -143,13 +314,9 @@ async def patch_admin_doc(
     if collection not in _COLLECTION_ID_FIELD:
         return JSONResponse(status_code=404, content={"detail": "Unknown collection"})
 
-    _PATCH_DENYLIST = {"password_hash", "is_admin", "_id"}
-
     body = await request.json()
     id_field = _COLLECTION_ID_FIELD[collection]
-    body.pop(id_field, None)
-    for field in _PATCH_DENYLIST:
-        body.pop(field, None)
+    body = {k: v for k, v in body.items() if k in _PATCH_ALLOWLIST[collection]}
 
     if not body:
         return JSONResponse(status_code=400, content={"detail": "No fields to update"})

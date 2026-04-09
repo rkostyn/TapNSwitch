@@ -103,3 +103,32 @@ async def test_delete_user_not_found(repo):
 async def test_is_admin_false_by_default(repo):
     await _create_testuser(repo)
     assert await repo.is_admin("testuser") is False
+
+
+async def test_is_admin_nonexistent_user(repo):
+    assert await repo.is_admin("doesnotexist") is False
+
+
+async def test_create_user_admin_non_admin(repo):
+    user = await repo.create_user_admin("adminuser1", "adminuser1@example.com", "password123", is_admin=False)
+    assert user.user_name == "adminuser1"
+    assert user.email == "adminuser1@example.com"
+    assert user.user_id
+    assert await repo.is_admin("adminuser1") is False
+
+
+async def test_create_user_admin_with_admin_flag(repo):
+    await repo.create_user_admin("adminuser2", "adminuser2@example.com", "password123", is_admin=True)
+    assert await repo.is_admin("adminuser2") is True
+
+
+async def test_create_user_admin_duplicate_username(repo):
+    await repo.create_user_admin("admindup", "admindup@example.com", "password123")
+    with pytest.raises(ValueError, match="already exists"):
+        await repo.create_user_admin("admindup", "other@example.com", "password123")
+
+
+async def test_create_user_admin_duplicate_email(repo):
+    await repo.create_user_admin("admindup2", "shared@example.com", "password123")
+    with pytest.raises(ValueError, match="already exists"):
+        await repo.create_user_admin("admindup3", "shared@example.com", "password123")
