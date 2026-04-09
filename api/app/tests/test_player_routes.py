@@ -67,3 +67,20 @@ def test_delete_player_unauthenticated(client, auth_token):
     player_id = client.post("/player", json={"player_name": "Protected Player"}, headers=auth_headers(auth_token)).json()["player_id"]
     response = client.delete(f"/player/{player_id}")
     assert response.status_code == 401
+
+
+def test_create_player_duplicate_name(client, auth_token):
+    client.post("/player", json={"player_name": "Duplicate Player"}, headers=auth_headers(auth_token))
+    response = client.post("/player", json={"player_name": "Duplicate Player"}, headers=auth_headers(auth_token))
+    assert response.status_code == 400
+    assert "detail" in response.json()
+
+
+def test_create_player_name_too_long(client, auth_token):
+    response = client.post("/player", json={"player_name": "x" * 129}, headers=auth_headers(auth_token))
+    assert response.status_code == 422
+
+
+def test_create_player_name_empty(client, auth_token):
+    response = client.post("/player", json={"player_name": ""}, headers=auth_headers(auth_token))
+    assert response.status_code == 422

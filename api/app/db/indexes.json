@@ -2,7 +2,13 @@
   {
     "db": "axes",
     "collection": "users",
-    "keys": {"username": 1, "email": 1},
+    "keys": {"user_name": 1},
+    "unique": true
+  },
+  {
+    "db": "axes",
+    "collection": "users",
+    "keys": {"email": 1},
     "unique": true
   },
   {

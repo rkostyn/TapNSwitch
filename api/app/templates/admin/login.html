@@ -3,20 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Login</title>
+    <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
-    <h1>Admin Login</h1>
-    {% if error %}
-    <p style="color:red">{{ error }}</p>
-    {% endif %}
-    <form method="post" action="/admin/login" id="login-form">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required>
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
-        <input type="hidden" name="credentials" id="credentials">
-        <button type="submit">Login</button>
-    </form>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <div class="login-title">Admin Login</div>
+            {% if error %}
+            <div class="login-error">{{ error }}</div>
+            {% endif %}
+            <form method="post" action="/admin/login" id="login-form">
+                <div class="login-field">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autocomplete="username">
+                </div>
+                <div class="login-field">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <input type="hidden" name="credentials" id="credentials">
+                <button type="submit" class="login-submit">Login</button>
+            </form>
+        </div>
+    </div>
     <script>
         document.getElementById('login-form').addEventListener('submit', function (e) {
             const username = document.getElementById('username').value;

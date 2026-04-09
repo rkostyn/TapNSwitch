@@ -164,3 +164,15 @@ def test_delete_round_unauthenticated(client, auth_token):
     round_id = client.post("/round", json={**ROUND_PAYLOAD, "match_id": match_id}, headers=auth_headers(auth_token)).json()["round_id"]
     response = client.delete(f"/round/{round_id}")
     assert response.status_code == 401
+
+
+def test_create_round_sequence_zero(client, auth_token):
+    match_id = make_match(client, auth_token)
+    response = client.post("/round", json={**ROUND_PAYLOAD, "match_id": match_id, "sequence": 0}, headers=auth_headers(auth_token))
+    assert response.status_code == 422
+
+
+def test_create_round_player_id_too_long(client, auth_token):
+    match_id = make_match(client, auth_token)
+    response = client.post("/round", json={**ROUND_PAYLOAD, "match_id": match_id, "player_1_id": "p" * 65}, headers=auth_headers(auth_token))
+    assert response.status_code == 422

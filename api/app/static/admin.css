@@ -61,6 +61,9 @@ header a:hover { color: #d4d4d4; }
 .col:last-child { border-right: none; }
 
 .col-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 10px 12px;
     border-bottom: 1px solid #2a2a2a;
     background: #161616;
@@ -126,6 +129,178 @@ header a:hover { color: #d4d4d4; }
     line-height: 1;
 }
 .entry-info:hover { color: #d4d4d4; }
+
+/* Modal */
+.modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+.modal-backdrop.open {
+    display: flex;
+}
+
+.modal {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 24px;
+    width: 340px;
+}
+
+.modal-title {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 20px;
+}
+
+.modal-field {
+    margin-bottom: 14px;
+}
+
+.modal-field label {
+    display: block;
+    font-size: 0.7rem;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 5px;
+}
+
+.modal-field input[type="text"],
+.modal-field input[type="email"],
+.modal-field input[type="password"] {
+    font-family: monospace;
+    font-size: 0.85rem;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    color: #d4d4d4;
+    padding: 6px 10px;
+    border-radius: 3px;
+    width: 100%;
+}
+
+.modal-field input:focus {
+    outline: none;
+    border-color: #444;
+}
+
+.modal-field-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.modal-field-check label {
+    font-size: 0.75rem;
+    color: #888;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.modal-error {
+    font-size: 0.75rem;
+    color: #e06c6c;
+    margin-bottom: 12px;
+    min-height: 1em;
+}
+
+.btn-add {
+    font-family: monospace;
+    font-size: 0.9rem;
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    padding: 2px 6px;
+    line-height: 1;
+}
+.btn-add:hover { color: #d4d4d4; }
+
+/* Login page */
+.login-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.login-box {
+    width: 320px;
+}
+
+.login-title {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 24px;
+}
+
+.login-error {
+    font-size: 0.8rem;
+    color: #e06c6c;
+    margin-bottom: 16px;
+}
+
+.login-field {
+    margin-bottom: 14px;
+}
+
+.login-field label {
+    display: block;
+    font-size: 0.7rem;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 5px;
+}
+
+.login-field input {
+    font-family: monospace;
+    font-size: 0.85rem;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    color: #d4d4d4;
+    padding: 6px 10px;
+    border-radius: 3px;
+    width: 100%;
+}
+
+.login-field input:focus {
+    outline: none;
+    border-color: #444;
+}
+
+.login-submit {
+    font-family: monospace;
+    font-size: 0.8rem;
+    background: none;
+    border: 1px solid #2a2a2a;
+    color: #888;
+    padding: 6px 16px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-top: 8px;
+    width: 100%;
+}
+
+.login-submit:hover {
+    border-color: #444;
+    color: #d4d4d4;
+    background: #1a1a1a;
+}
 
 /* Detail page */
 .detail-page {

@@ -120,6 +120,38 @@ class UserRepository:
             logger.warning("Verification failed — incorrect password")
         return matched
 
+    async def create_user_admin(self, user_name: str, email: str, password: str, is_admin: bool = False) -> User:
+        if self.collection is None:
+            await self.init_collection()
+
+        existing = await self.collection.find_one({
+            "$or": [{"user_name": user_name}, {"email": email}]
+        })
+        if existing:
+            raise ValueError("Username or email already exists")
+
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        user_id = str(uuid.uuid4())
+        created_at = datetime.now(UTC)
+
+        user_doc = {
+            "user_id": user_id,
+            "user_name": user_name,
+            "email": email,
+            "password_hash": password_hash,
+            "created_at": created_at,
+            "is_admin": is_admin,
+        }
+        try:
+            result = await self.collection.insert_one(user_doc)
+        except DuplicateKeyError:
+            raise ValueError("Username or email already exists")
+
+        if result.inserted_id:
+            logger.info("Admin created user (id=%s, is_admin=%s)", user_id, is_admin)
+            return User(user_id=user_id, user_name=user_name, email=email, created_at=created_at)
+        raise Exception("Failed to create user")
+
     async def is_admin(self, user_name: str) -> bool:
         if self.collection is None:
             await self.init_collection()

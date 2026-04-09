@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin / Create Event</title>
+    <link rel="stylesheet" href="/static/admin.css?v=6">
+</head>
+<body>
+
+<header>
+    <h1>axes / admin / <a href="/admin/">events</a> / create</h1>
+    <div class="header-actions">
+        <a href="/admin/logout">logout</a>
+    </div>
+</header>
+
+<div class="detail-page">
+    {% if error %}
+    <div class="detail-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/admin/events/create">
+        <table class="detail-table">
+            <tr>
+                <td class="detail-key"><label for="venue_id">venue_id</label></td>
+                <td class="detail-value"><input class="edit-input" type="text" id="venue_id" name="venue_id" value="{{ venue_id or '' }}" required autocomplete="off"></td>
+            </tr>
+            <tr>
+                <td class="detail-key"><label for="start_timestamp">start_timestamp</label></td>
+                <td class="detail-value"><input class="edit-input" type="datetime-local" id="start_timestamp" name="start_timestamp" value="{{ start_timestamp or '' }}" autocomplete="off"></td>
+            </tr>
+        </table>
+        <div style="margin-top: 16px; display: flex; gap: 8px;">
+            <button type="submit" class="btn-save">Create</button>
+            <a href="/admin/" class="btn-cancel" style="display:inline-flex; align-items:center; text-decoration:none;">Cancel</a>
+        </div>
+    </form>
+</div>
+
+</body>
+</html>

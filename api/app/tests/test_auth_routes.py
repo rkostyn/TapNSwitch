@@ -111,3 +111,52 @@ async def test_register_rate_limit(client, redis_client):
         assert response.status_code == 429
     finally:
         await redis_client.delete(key)
+
+
+def test_logout(client):
+    credentials = base64.b64encode(b"testuser:testpassword").decode()
+    token = client.post("/auth/login", json={"credentials": credentials}).json()["access_token"]
+    response = client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["message"] == "ok"
+
+
+def test_logout_unauthenticated(client):
+    response = client.post("/auth/logout")
+    assert response.status_code == 401
+
+
+def test_logout_invalidates_token(client):
+    credentials = base64.b64encode(b"testuser:testpassword").decode()
+    token = client.post("/auth/login", json={"credentials": credentials}).json()["access_token"]
+    client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    # Token should no longer work for protected endpoints
+    response = client.get("/auth/user", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_register_token_not_consumed_on_duplicate_username(client):
+    """Fix 1: a failed registration must not burn the token."""
+    from app.tests.conftest import _fake_mongo
+    tokens = _fake_mongo._get_or_create("axes", "registration_tokens")
+    tokens._docs.append({"token": "preserve-test-token"})
+
+    # First attempt fails — username already exists
+    client.post("/auth/register", json={
+        "username": "testuser",  # pre-seeded, will conflict
+        "password": "password1234",
+        "email": "unique-preserve@example.com",
+        "registration_token": "preserve-test-token",
+    })
+
+    # Token must still be present
+    assert any(t.get("token") == "preserve-test-token" for t in tokens._docs)
+
+    # Second attempt with a unique username must succeed using the same token
+    response = client.post("/auth/register", json={
+        "username": "preserve_user",
+        "password": "password1234",
+        "email": "unique-preserve@example.com",
+        "registration_token": "preserve-test-token",
+    })
+    assert response.status_code == 200
