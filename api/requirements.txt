@@ -10,7 +10,7 @@ email-validator==2.3.0
 execnet==2.1.2
 fastapi==0.135.3
 fastapi-cli==0.0.24
-fastapi-cloud-cli==0.15.1
+fastapi-cloud-cli==0.17.0
 fastar==0.10.0
 filelock==3.25.2
 h11==0.16.0
