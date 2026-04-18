@@ -4,13 +4,13 @@ from datetime import datetime
 
 
 class EventCreate(BaseModel):
-    venue_id: str = Field(min_length=1, max_length=128)
+    venue_id: Optional[str] = None
     start_timestamp: Optional[datetime] = None
 
 
 class Event(BaseModel):
     event_id: str
-    venue_id: str
+    venue_id: Optional[str] = None
     start_timestamp: Optional[datetime] = None
     timestamp: datetime
     is_locked: bool = False
