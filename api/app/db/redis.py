@@ -33,6 +33,15 @@ class RedisClient:
     async def expire(self, key: str, seconds: int):
         await self.redis.expire(key, seconds)
 
+    async def incr_with_expire(self, key: str, window: int) -> int:
+        """Atomically increment a counter and set its TTL on first use (Lua script)."""
+        script = (
+            "local c = redis.call('INCR', KEYS[1]) "
+            "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end "
+            "return c"
+        )
+        return await self.redis.eval(script, 1, key, window)
+
     async def delete(self, key: str):
         await self.redis.delete(key)
 

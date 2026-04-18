@@ -183,3 +183,18 @@ def test_delete_match_unauthenticated(client, auth_token):
     match_id = client.post("/match", json={**MATCH_PAYLOAD, "event_id": event_id}, headers=auth_headers(auth_token)).json()["match_id"]
     response = client.delete(f"/match/{match_id}")
     assert response.status_code == 401
+
+
+def test_create_match_sequence_zero(client, auth_token):
+    response = client.post("/match", json={**MATCH_PAYLOAD, "sequence": 0}, headers=auth_headers(auth_token))
+    assert response.status_code == 422
+
+
+def test_create_match_player_id_too_long(client, auth_token):
+    response = client.post("/match", json={**MATCH_PAYLOAD, "player_1_id": "p" * 65}, headers=auth_headers(auth_token))
+    assert response.status_code == 422
+
+
+def test_create_match_nonexistent_event(client, auth_token):
+    response = client.post("/match", json={**MATCH_PAYLOAD, "event_id": "no-such-event"}, headers=auth_headers(auth_token))
+    assert response.status_code == 404

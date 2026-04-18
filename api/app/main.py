@@ -7,10 +7,13 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from prometheus_fastapi_instrumentator import Instrumentator
+import re
 import time
 import os
 import json
 import uuid
+
+_REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,64}$')
 from app.logger import get_logger, request_id_var
 from app.db.mongo import MongoClient
 from app.db.redis import RedisClient
@@ -95,7 +98,8 @@ async def security_headers_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def correlation_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    raw_id = request.headers.get("X-Request-ID", "")
+    request_id = raw_id if _REQUEST_ID_RE.match(raw_id) else str(uuid.uuid4())
     token = request_id_var.set(request_id)
     try:
         response = await call_next(request)

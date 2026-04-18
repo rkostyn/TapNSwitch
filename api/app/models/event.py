@@ -1,10 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 
 class EventCreate(BaseModel):
-    venue_id: str
+    venue_id: str = Field(min_length=1, max_length=128)
     start_timestamp: Optional[datetime] = None
 
 

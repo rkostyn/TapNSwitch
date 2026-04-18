@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin / Create User</title>
+    <link rel="stylesheet" href="/static/admin.css?v=6">
+</head>
+<body>
+
+<header>
+    <h1>axes / admin / <a href="/admin/">users</a> / create</h1>
+    <div class="header-actions">
+        <a href="/admin/logout">logout</a>
+    </div>
+</header>
+
+<div class="detail-page">
+    {% if generated_password %}
+    <div style="margin-bottom: 20px;">
+        <div style="font-size: 0.75rem; color: #3dba73; margin-bottom: 10px;">User <strong>{{ created_user_name }}</strong> created.</div>
+        <table class="detail-table">
+            <tr>
+                <td class="detail-key">generated password</td>
+                <td class="detail-value"><code>{{ generated_password }}</code></td>
+            </tr>
+        </table>
+        <div style="margin-top: 16px;">
+            <a href="/admin/" class="btn-save" style="display:inline-flex; align-items:center; text-decoration:none;">Back to admin</a>
+        </div>
+    </div>
+    {% else %}
+    {% if error %}
+    <div class="detail-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/admin/users/create">
+        <table class="detail-table">
+            <tr>
+                <td class="detail-key"><label for="user_name">user_name</label></td>
+                <td class="detail-value"><input class="edit-input" type="text" id="user_name" name="user_name" value="{{ user_name or '' }}" required autocomplete="off"></td>
+            </tr>
+            <tr>
+                <td class="detail-key"><label for="email">email</label></td>
+                <td class="detail-value"><input class="edit-input" type="email" id="email" name="email" value="{{ email or '' }}" required autocomplete="off"></td>
+            </tr>
+            <tr>
+                <td class="detail-key"><label for="password">password</label></td>
+                <td class="detail-value"><input class="edit-input" type="password" id="password" name="password" autocomplete="new-password" placeholder="leave blank to generate"></td>
+            </tr>
+            <tr>
+                <td class="detail-key"><label for="is_admin">is_admin</label></td>
+                <td class="detail-value">
+                    <select class="edit-input" id="is_admin" name="is_admin">
+                        <option value="false">false</option>
+                        <option value="true">true</option>
+                    </select>
+                </td>
+            </tr>
+        </table>
+        <div style="margin-top: 16px; display: flex; gap: 8px;">
+            <button type="submit" class="btn-save">Create</button>
+            <a href="/admin/" class="btn-cancel" style="display:inline-flex; align-items:center; text-decoration:none;">Cancel</a>
+        </div>
+    </form>
+    {% endif %}
+</div>
+
+</body>
+</html>

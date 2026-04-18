@@ -1,16 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 class ThrowSubmit(BaseModel):
     throw_id: Optional[str] = None
     timestamp: Optional[datetime] = None
-    player_id: str
-    round_id: str
-    match_id: str
-    event_id: Optional[str] = None
-    venue_id: Optional[str] = None
-    points:  int
+    player_id: str = Field(min_length=1, max_length=64)
+    round_id: str = Field(min_length=1, max_length=64)
+    match_id: str = Field(min_length=1, max_length=64)
+    event_id: Optional[str] = Field(default=None, max_length=64)
+    venue_id: Optional[str] = Field(default=None, max_length=128)
+    points: int = Field(ge=0)
     clutch_called: Optional[bool] = False
     is_premier: Optional[bool] = False
     is_drop: Optional[bool] = False
