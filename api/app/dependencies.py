@@ -36,10 +36,19 @@ def rate_limit(limit: int, window: int = 60):
     return _check
 
 
+_REFRESH_TOKEN_TTL = 60 * 60 * 24 * 30  # 30 days
+
+
 async def create_access_token(subject: str, redis_client: RedisClient, expires_seconds: int = 3600, key_prefix: str = "auth:token") -> str:
     token = secrets.token_urlsafe(32)
     await redis_client.set(f"{key_prefix}:{_hash_token(token)}", subject, expire=expires_seconds)
     logger.info("Access token created")
+    return token
+
+
+async def create_refresh_token(subject: str, redis_client: RedisClient) -> str:
+    token = secrets.token_urlsafe(32)
+    await redis_client.set(f"auth:refresh_token:{_hash_token(token)}", subject, expire=_REFRESH_TOKEN_TTL)
     return token
 
 

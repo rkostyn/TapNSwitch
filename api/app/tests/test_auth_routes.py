@@ -34,6 +34,8 @@ def test_login(client):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert data["expires_in"] == 3600
+    assert "refresh_token" in data
+    assert data["refresh_token_expires_in"] == 2592000
 
 
 def test_login_invalid_credentials(client):
@@ -132,6 +134,42 @@ def test_logout_invalidates_token(client):
     client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
     # Token should no longer work for protected endpoints
     response = client.get("/auth/user", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_refresh_token_issues_new_access_token(client):
+    credentials = base64.b64encode(b"testuser:testpassword").decode()
+    login_data = client.post("/auth/login", json={"credentials": credentials}).json()
+    refresh_token = login_data["refresh_token"]
+    response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["refresh_token"] == refresh_token  # same refresh token echoed back
+    assert data["access_token"] != login_data["access_token"]  # new access token
+
+
+def test_refresh_token_new_access_token_works(client):
+    credentials = base64.b64encode(b"testuser:testpassword").decode()
+    refresh_token = client.post("/auth/login", json={"credentials": credentials}).json()["refresh_token"]
+    new_access_token = client.post("/auth/refresh", json={"refresh_token": refresh_token}).json()["access_token"]
+    response = client.get("/auth/user", headers={"Authorization": f"Bearer {new_access_token}"})
+    assert response.status_code == 200
+
+
+def test_refresh_token_invalid(client):
+    response = client.post("/auth/refresh", json={"refresh_token": "not-a-valid-token"})
+    assert response.status_code == 401
+
+
+def test_logout_revokes_refresh_token(client):
+    credentials = base64.b64encode(b"testuser:testpassword").decode()
+    login_data = client.post("/auth/login", json={"credentials": credentials}).json()
+    access_token = login_data["access_token"]
+    refresh_token = login_data["refresh_token"]
+    client.post("/auth/logout", headers={"Authorization": f"Bearer {access_token}"})
+    # Refresh token must no longer work after logout
+    response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
     assert response.status_code == 401
 
 

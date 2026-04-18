@@ -16,7 +16,12 @@ class RegisterResponse(BaseModel):
 class LoginRequest(BaseModel):
     credentials: str
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = 3600
+    refresh_token: str
+    refresh_token_expires_in: int = 2592000  # 30 days

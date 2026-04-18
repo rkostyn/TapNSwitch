@@ -6,11 +6,11 @@ import base64
 import binascii
 import hashlib
 
-from app.dependencies import bearer_scheme, create_access_token, get_current_user, get_mongo_client, get_redis_client, rate_limit
+from app.dependencies import bearer_scheme, create_access_token, create_refresh_token, get_current_user, get_mongo_client, get_redis_client, rate_limit
 from app.db.redis import RedisClient
 from app.repositories.user_repository import UserRepository
 from app.models.user import User, UserCreate
-from app.models.auth import RegisterRequest, RegisterResponse, LoginRequest, TokenResponse
+from app.models.auth import RegisterRequest, RegisterResponse, LoginRequest, RefreshRequest, TokenResponse
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -74,9 +74,27 @@ async def login(body: LoginRequest, mongo_client: MongoClient = Depends(get_mong
         logger.warning("Failed login attempt")
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = await create_access_token(subject=username, redis_client=redis_client, expires_seconds=3600)
+    access_token = await create_access_token(subject=username, redis_client=redis_client, expires_seconds=3600)
+    refresh_token = await create_refresh_token(subject=username, redis_client=redis_client)
+    # Store a link from the access token to the refresh token so logout can revoke both
+    access_hash = hashlib.sha256(access_token.encode()).hexdigest()
+    refresh_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+    await redis_client.set(f"auth:token_refresh:{access_hash}", refresh_hash, expire=3600)
     logger.info("Login successful")
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(rate_limit(10, 60))])
+async def refresh(body: RefreshRequest, redis_client: RedisClient = Depends(get_redis_client)):
+    refresh_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
+    subject = await redis_client.get(f"auth:refresh_token:{refresh_hash}")
+    if subject is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    access_token = await create_access_token(subject=subject, redis_client=redis_client, expires_seconds=3600)
+    access_hash = hashlib.sha256(access_token.encode()).hexdigest()
+    await redis_client.set(f"auth:token_refresh:{access_hash}", refresh_hash, expire=3600)
+    logger.info("Token refreshed for %s", subject)
+    return TokenResponse(access_token=access_token, refresh_token=body.refresh_token)
 
 
 @router.post("/logout")
@@ -84,7 +102,12 @@ async def logout(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     redis_client: RedisClient = Depends(get_redis_client),
 ):
-    await redis_client.delete(f"auth:token:{hashlib.sha256(credentials.credentials.encode()).hexdigest()}")
+    access_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()
+    refresh_hash = await redis_client.get(f"auth:token_refresh:{access_hash}")
+    await redis_client.delete(f"auth:token:{access_hash}")
+    await redis_client.delete(f"auth:token_refresh:{access_hash}")
+    if refresh_hash:
+        await redis_client.delete(f"auth:refresh_token:{refresh_hash}")
     logger.info("User logged out")
     return {"message": "ok"}
 
