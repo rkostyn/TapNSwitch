@@ -54,3 +54,10 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/tapnswitch-api:latest
             ghcr.io/${{ github.repository_owner }}/tapnswitch-api:${{ github.sha }}
+
+      - name: Retart deployment
+        uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: rollout restart deployment axes-api -n axes
