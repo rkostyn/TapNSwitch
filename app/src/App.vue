@@ -1,6 +1,7 @@
 <script setup>
   import { ref } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
+  import AppHeader from './components/AppHeader.vue'
 
   const totalRounds = ref(3)
   const player1Name = ref('Player 1')
@@ -31,15 +32,16 @@
 
 <template>
   <div class="page">
-    <ScoreBoard
-      ref="scoreboard"
-      :player1Name="player1Name"
-      :player2Name="player2Name"
-      :totalRounds="totalRounds"
-      @requestConfig="openConfig"
-    />
 
-    <button class="config-btn" @click="openConfig">&#9881;</button>
+    <div class="content">
+      <ScoreBoard
+        ref="scoreboard"
+        :player1Name="player1Name"
+        :player2Name="player2Name"
+        :totalRounds="totalRounds"
+        @requestConfig="openConfig"
+      />
+    </div>
 
     <Teleport to="body">
       <div v-if="showConfig" class="modal-overlay" @click.self="showConfig = false">
@@ -72,33 +74,20 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 20px;
   box-sizing: border-box;
-  gap: 20px;
 }
 
-.config-btn {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  width: 36px;
-  height: 36px;
-  font-size: 1.2rem;
-  background: #7c3aed;
-  color: #fff;
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(124,58,237,0.5);
+.content {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
 }
 
-.config-btn:hover {
-  background: #6d28d9;
-}
 
 .modal-overlay {
   position: fixed;

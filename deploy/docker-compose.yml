@@ -40,6 +40,7 @@ services:
       MONGODB_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
       REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/0
       APP_NAME: ${APP_NAME:-TapNSwitch}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
 
   frontend:
     build:
@@ -49,6 +50,8 @@ services:
       - api
     ports:
       - "8000:80"
+    environment:
+      API_URL: ${API_URL:-http://localhost:8001}
 
 volumes:
   mongo_data:

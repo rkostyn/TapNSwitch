@@ -14,6 +14,15 @@
   const scores2 = ref(Array(THROWS).fill(null))
   const completedRounds = ref([])
   const selected = ref(null) // { player: 1|2, index: number }
+  const sidesSwapped = ref(false)
+
+  // Which player name/scores are on the left vs right panel this round
+  const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
+  const rightName = computed(() => sidesSwapped.value ? props.player1Name : props.player2Name)
+  const leftScores = computed(() => sidesSwapped.value ? scores2 : scores1)
+  const rightScores = computed(() => sidesSwapped.value ? scores1 : scores2)
+  const applyScoreLeft = (value) => applyScore(sidesSwapped.value ? scores2 : scores1, sidesSwapped.value ? 2 : 1, value)
+  const applyScoreRight = (value) => applyScore(sidesSwapped.value ? scores1 : scores2, sidesSwapped.value ? 1 : 2, value)
 
   const roundComplete = computed(() => scores1.value.every(s => s !== null) && scores2.value.every(s => s !== null))
 
@@ -82,6 +91,7 @@
     scores1.value = Array(THROWS).fill(null)
     scores2.value = Array(THROWS).fill(null)
     selected.value = null
+    sidesSwapped.value = !sidesSwapped.value
   }
 
   function resetGame() {
@@ -90,6 +100,7 @@
     scores2.value = Array(THROWS).fill(null)
     completedRounds.value = []
     selected.value = null
+    sidesSwapped.value = false
   }
 
   defineExpose({ resetGame })
@@ -124,14 +135,14 @@
     </div>
 
     <div class="tab-bar">
-      <button class="tab-btn" :class="{ active: activeTab === 'p1' }" @click="activeTab = 'p1'">{{ player1Name }}</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'p1' }" @click="activeTab = 'p1'">{{ leftName }}</button>
       <button class="tab-btn" :class="{ active: activeTab === 'scores' }" @click="activeTab = 'scores'">Scores</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'p2' }" @click="activeTab = 'p2'">{{ player2Name }}</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'p2' }" @click="activeTab = 'p2'">{{ rightName }}</button>
     </div>
 
     <div class="app-layout">
       <div class="tab-panel panel-p1" :class="{ active: activeTab === 'p1' }">
-        <UrbanScore :playerName="player1Name" :disabled="player1Disabled" :clutchAvailable="player1ClutchAvailable" @score="applyScore1" />
+        <UrbanScore :playerName="leftName" :disabled="sidesSwapped ? player2Disabled : player1Disabled" :clutchAvailable="sidesSwapped ? player2ClutchAvailable : player1ClutchAvailable" @score="applyScoreLeft" />
       </div>
 
       <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }">
@@ -139,47 +150,47 @@
         <h2 class="scoreboard-title">Scores</h2>
 
         <div class="scoreboard-grid">
-          <div class="col-header">{{ player1Name }}</div>
+          <div class="col-header">{{ leftName }}</div>
           <div class="col-header round-col-label">Axe</div>
-          <div class="col-header">{{ player2Name }}</div>
+          <div class="col-header">{{ rightName }}</div>
 
           <template v-for="i in THROWS" :key="i">
-            <!-- Player 1 cell -->
-            <div class="score-cell" :class="{ filled: scores1[i-1] !== null }">
-              <template v-if="scores1[i-1] !== null">
-                <button class="score-btn" :class="{ selected: isSelected(1, i-1) }"
-                  @click="!isSelected(1, i-1) && selectScore(1, i-1)">
-                  {{ scores1[i-1].value }}<sup v-if="scores1[i-1].drop" class="drop-marker">d</sup>
+            <!-- Left player cell -->
+            <div class="score-cell" :class="{ filled: leftScores.value[i-1] !== null }">
+              <template v-if="leftScores.value[i-1] !== null">
+                <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
+                  @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
+                  {{ leftScores.value[i-1].value }}<sup v-if="leftScores.value[i-1].drop" class="drop-marker">d</sup>
                 </button>
-                <button v-if="isSelected(1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
               </template>
               <template v-else>–</template>
             </div>
 
             <div class="round-num">{{ i }}</div>
 
-            <!-- Player 2 cell -->
-            <div class="score-cell" :class="{ filled: scores2[i-1] !== null }">
-              <template v-if="scores2[i-1] !== null">
-                <button class="score-btn" :class="{ selected: isSelected(2, i-1) }"
-                  @click="isSelected(2, i-1) ? confirmReset() : selectScore(2, i-1)">
-                  {{ scores2[i-1].value }}<sup v-if="scores2[i-1].drop" class="drop-marker">d</sup>
+            <!-- Right player cell -->
+            <div class="score-cell" :class="{ filled: rightScores.value[i-1] !== null }">
+              <template v-if="rightScores.value[i-1] !== null">
+                <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
+                  @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
+                  {{ rightScores.value[i-1].value }}<sup v-if="rightScores.value[i-1].drop" class="drop-marker">d</sup>
                 </button>
-                <button v-if="isSelected(2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
               </template>
               <template v-else>–</template>
             </div>
           </template>
 
-          <div class="total-cell">{{ total(scores1) }}</div>
+          <div class="total-cell">{{ total(leftScores.value) }}</div>
           <div class="total-label">Total</div>
-          <div class="total-cell">{{ total(scores2) }}</div>
+          <div class="total-cell">{{ total(rightScores.value) }}</div>
         </div>
       </div>
       </div>
 
       <div class="tab-panel panel-p2" :class="{ active: activeTab === 'p2' }">
-        <UrbanScore :playerName="player2Name" :mirrored="true" :disabled="player2Disabled" :clutchAvailable="player2ClutchAvailable" @score="applyScore2" />
+        <UrbanScore :playerName="rightName" :mirrored="true" :disabled="sidesSwapped ? player1Disabled : player2Disabled" :clutchAvailable="sidesSwapped ? player1ClutchAvailable : player2ClutchAvailable" @score="applyScoreRight" />
       </div>
     </div>
 
