@@ -1,11 +1,36 @@
 <script setup>
-  import { ref, computed } from 'vue'
+  import { ref, computed, onMounted } from 'vue'
+  import axios from 'axios'
   import UrbanScore from './UrbanScore.vue'
+  import { config } from '../config'
+  import { getCookie } from '../cookies'
 
   const props = defineProps(['player1Name', 'player2Name', 'totalRounds'])
   const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig'])
 
   const THROWS = 5
+
+  // Match ID — generated once per match, reset on new game
+  const matchId = ref(crypto.randomUUID())
+
+  async function startRound(sequence) {
+    const token = getCookie('access_token')
+    const tokenType = getCookie('token_type') ?? 'Bearer'
+    try {
+      await axios.post(`${config.apiUrl}/round`, {
+        match_id: matchId.value,
+        player_1_id: props.player1Name,
+        player_2_id: props.player2Name,
+        sequence,
+      }, {
+        headers: { Authorization: `${tokenType} ${token}` },
+      })
+    } catch (e) {
+      console.error('Failed to start round:', e)
+    }
+  }
+
+  onMounted(() => startRound(1))
 
   // Game state
   const currentRound = ref(1)
@@ -92,6 +117,7 @@
     scores2.value = Array(THROWS).fill(null)
     selected.value = null
     sidesSwapped.value = !sidesSwapped.value
+    startRound(1)
   }
 
   function resetGame() {
@@ -101,6 +127,8 @@
     completedRounds.value = []
     selected.value = null
     sidesSwapped.value = false
+    matchId.value = crypto.randomUUID()
+    startRound(1)
   }
 
   defineExpose({ resetGame })

@@ -2,6 +2,7 @@
   import { ref } from 'vue'
   import axios from 'axios'
   import { config } from '../config'
+  import { setCookie } from '../cookies'
 
   const emit = defineEmits(['openConfig'])
 
@@ -23,7 +24,9 @@
     loading.value = true
     try {
       const credentials = btoa(`${username.value}:${password.value}`)
-      await axios.post(`${config.apiUrl}/auth/login`, { credentials })
+      const { data } = await axios.post(`${config.apiUrl}/auth/login`, { credentials })
+      setCookie('access_token', data.access_token, data.expires_in)
+      setCookie('token_type', data.token_type, data.expires_in)
       showLogin.value = false
     } catch (e) {
       if (axios.isAxiosError(e) && e.response) {

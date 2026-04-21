@@ -32,6 +32,7 @@
 
 <template>
   <div class="page">
+    <AppHeader @openConfig="openConfig" />
 
     <div class="content">
       <ScoreBoard
