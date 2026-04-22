@@ -41,6 +41,9 @@ services:
       REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/0
       APP_NAME: ${APP_NAME:-TapNSwitch}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@local.dev}
 
   frontend:
     build:
