@@ -158,3 +158,10 @@ class UserRepository:
 
         user_doc = await self.collection.find_one({"user_name": user_name}, {"is_admin": 1})
         return bool(user_doc and user_doc.get("is_admin"))
+
+    async def has_any_admin(self) -> bool:
+        if self.collection is None:
+            await self.init_collection()
+
+        user_doc = await self.collection.find_one({"is_admin": True}, {"_id": 1})
+        return user_doc is not None

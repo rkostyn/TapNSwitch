@@ -122,6 +122,14 @@ async def test_create_user_admin_with_admin_flag(repo):
     assert await repo.is_admin("adminuser2") is True
 
 
+async def test_has_any_admin_false_until_admin(repo):
+    assert await repo.has_any_admin() is False
+    await repo.create_user_admin("a", "a@example.com", "p", is_admin=False)
+    assert await repo.has_any_admin() is False
+    await repo.create_user_admin("b", "b@example.com", "p", is_admin=True)
+    assert await repo.has_any_admin() is True
+
+
 async def test_create_user_admin_duplicate_username(repo):
     await repo.create_user_admin("admindup", "admindup@example.com", "password123")
     with pytest.raises(ValueError, match="already exists"):

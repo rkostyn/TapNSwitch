@@ -2,6 +2,10 @@
 """
 Generate a MongoDB document for an admin user and print it as JSON.
 Optionally insert it directly into MongoDB with --insert.
+
+For Docker deployments, prefer setting INITIAL_ADMIN_PASSWORD (and optional
+INITIAL_ADMIN_USERNAME / INITIAL_ADMIN_EMAIL) so the API creates the first
+admin once on startup; see app/bootstrap/initial_admin.py.
 """
 import argparse
 import base64
