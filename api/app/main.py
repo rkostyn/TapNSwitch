@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request, APIRouter
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -15,6 +16,7 @@ import uuid
 
 _REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,64}$')
 from app.logger import get_logger, request_id_var
+from app.bootstrap.initial_admin import ensure_initial_admin
 from app.db.mongo import MongoClient
 from app.db.redis import RedisClient
 
@@ -50,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             keys=index["keys"],
             unique=index.get("unique", False)
         )
+    await ensure_initial_admin(client)
     logger.info("Startup complete")
     yield
     logger.info("Shutting down")
@@ -78,6 +81,15 @@ app = FastAPI(
             "theme": "obsidian"
         }
     }
+)
+
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins or ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")

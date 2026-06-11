@@ -1,15 +1,26 @@
 <script setup>
   import { ref } from 'vue'
-  import axios from 'axios'
-  import { config } from '../config'
+  import { login } from '../api'
+  import { getCookie, setCookie, deleteCookie } from '../cookies'
+  import EventsModal from './EventsModal.vue'
 
-  const emit = defineEmits(['openConfig'])
+  const emit = defineEmits(['openConfig', 'selectMatch'])
 
   const showLogin = ref(false)
   const username = ref('')
   const password = ref('')
   const error = ref('')
   const loading = ref(false)
+  const loggedInUser = ref(getCookie('username') ?? '')
+  const showEvents = ref(false)
+  const eventsInitialId = ref(null)
+
+  function openEvents(eventId = null) {
+    eventsInitialId.value = eventId
+    showEvents.value = true
+  }
+
+  defineExpose({ openEvents })
 
   function openLogin() {
     username.value = ''
@@ -18,16 +29,31 @@
     showLogin.value = true
   }
 
+  function logout() {
+    deleteCookie('access_token')
+    deleteCookie('token_type')
+    deleteCookie('username')
+    deleteCookie('token_issued_at')
+    loggedInUser.value = ''
+  }
+
   async function submitLogin() {
     error.value = ''
     loading.value = true
     try {
-      const credentials = btoa(`${username.value}:${password.value}`)
-      await axios.post(`${config.apiUrl}/auth/login`, { credentials })
+      const data = await login(username.value, password.value)
+      setCookie('access_token', data.access_token, data.expires_in)
+      setCookie('token_type', data.token_type, data.expires_in)
+      setCookie('username', username.value, data.expires_in)
+      setCookie('token_issued_at', String(Date.now()), data.expires_in)
+      loggedInUser.value = username.value
       showLogin.value = false
     } catch (e) {
-      if (axios.isAxiosError(e) && e.response) {
-        error.value = 'Invalid username or password.'
+      if (e?.response?.status === 401) {
+        error.value = 'Wrong password. Please check your password and try again.'
+      } else if (e?.response) {
+        const detail = e.response.data?.detail
+        error.value = typeof detail === 'string' ? detail : 'Login failed. Please try again.'
       } else {
         error.value = 'Could not reach the server.'
       }
@@ -39,13 +65,23 @@
 
 <template>
   <header class="app-header">
-    <div class="header-left"></div>
+    <div class="header-left">
+      <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
+    </div>
     <div class="header-right">
-      <button class="auth-btn login-btn" @click="openLogin">Log In</button>
-      <button class="auth-btn register-btn">Register</button>
+      <template v-if="loggedInUser">
+        <span class="logged-in-user">{{ loggedInUser }}</span>
+        <button class="auth-btn logout-btn" @click="logout">Log Out</button>
+      </template>
+      <template v-else>
+        <button class="auth-btn login-btn" @click="openLogin">Log In</button>
+        <button class="auth-btn register-btn">Register</button>
+      </template>
       <button class="config-btn" @click="emit('openConfig')">&#9881;</button>
     </div>
   </header>
+
+  <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="showEvents = false" @selectMatch="emit('selectMatch', $event)" />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
@@ -109,8 +145,8 @@
   width: 34px;
   height: 34px;
   font-size: 1.1rem;
-  background: #1e293b;
-  color: #a78bfa;
+  background: var(--color-bg-secondary);
+  color: var(--color-purple);
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -122,140 +158,16 @@
 }
 
 .config-btn:hover {
-  background: #273548;
+  background: var(--color-bg-secondary-hover);
 }
 
-.auth-btn {
-  padding: 6px 16px;
+.logged-in-user {
   font-size: 0.875rem;
   font-weight: bold;
-  letter-spacing: 0.5px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.login-btn {
-  background: transparent;
-  color: #a78bfa;
-  border: 1px solid #4c1d95;
-}
-
-.login-btn:hover {
-  background: #1e1b2e;
-}
-
-.register-btn {
-  background: #7c3aed;
-  color: #fff;
-}
-
-.register-btn:hover {
-  background: #6d28d9;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.modal {
-  background: #1e2028;
-  border-radius: 12px;
-  padding: 32px;
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.modal-title {
-  font-size: 1.2rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  color: #a78bfa;
-  margin: 0 0 8px;
-}
-
-.modal-label {
-  font-size: 0.85rem;
-  font-weight: bold;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 6px;
-}
-
-.modal-input {
-  padding: 8px 12px;
-  font-size: 1rem;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  outline: none;
-  background: #0f1117;
-  color: #e2e8f0;
-}
-
-.modal-input:focus {
-  border-color: #8b5cf6;
-}
-
-.modal-input:disabled {
-  opacity: 0.5;
-}
-
-.modal-error {
-  font-size: 0.85rem;
-  color: #f87171;
-  margin: 4px 0 0;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.modal-cancel {
-  padding: 8px 18px;
-  font-size: 0.95rem;
-  background: #1e293b;
-  color: #94a3b8;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.modal-cancel:hover:not(:disabled) {
-  background: #293548;
-}
-
-.modal-submit {
-  padding: 8px 18px;
-  font-size: 0.95rem;
-  font-weight: bold;
-  background: #7c3aed;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.modal-submit:hover:not(:disabled) {
-  background: #6d28d9;
-}
-
-.modal-submit:disabled,
-.modal-cancel:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  color: var(--color-purple);
+  padding: 6px 12px;
+  background: var(--color-purple-soft);
+  border: 1px solid var(--color-purple-edge);
+  border-radius: var(--radius-sm);
 }
 </style>

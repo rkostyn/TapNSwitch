@@ -5,20 +5,20 @@
   const emit = defineEmits(['score'])
 
   const defaultButtons = [
-    {text: "1", score: "1", style: { 'background-color': "#3b82f6", color: "#fff" }},
-    {text: "3", score: "3", style: { 'background-color': "#ef4444", color: "#fff" }},
-    {text: "5", score: "5", style: { 'background-color': "#8b5cf6", color: "#fff" }},
-    {text: "0", score: "0", style: { 'background-color': "#f59e0b", color: "#fff" }},
-    {text: "Call Clutch", style: { 'background-color': "#059669", color: "#fff" }},
-    {text: "Drop", score: "Drop", style: { 'background-color': "#6b7280", color: "#fff" }}
+    { text: '1', score: '1', color: 'blue' },
+    { text: '3', score: '3', color: 'red' },
+    { text: '5', score: '5', color: 'purple' },
+    { text: '0', score: '0', color: 'orange' },
+    { text: 'Call Clutch', color: 'green' },
+    { text: 'Drop', score: 'Drop', color: 'gray' },
   ]
 
   const clutchButtons = [
-    {text: "Left Clutch", score: "7", style: { 'background-color': "#059669", color: "#fff" }},
-    {text: "Right Clutch", score: "7", style: { 'background-color': "#059669", color: "#fff" }},
-    {text: "0", score: "0", style: { 'background-color': "#f59e0b", color: "#fff" }},
-    {text: "Drop", score: "Drop", style: { 'background-color': "#6b7280", color: "#fff" }},
-    {text: "Cancel", style: { 'background-color': "#ef4444", color: "#fff" }}
+    { text: 'Left Clutch', score: '7', color: 'green' },
+    { text: 'Right Clutch', score: '7', color: 'green' },
+    { text: '0', score: '0', color: 'orange' },
+    { text: 'Drop', score: 'Drop', color: 'gray' },
+    { text: 'Cancel', color: 'red' },
   ]
 
   const buttons = ref([...defaultButtons])
@@ -33,13 +33,12 @@
     return result
   })
 
-  function urbanScore(score){
-    if (score === "Call Clutch") {
+  function urbanScore(score) {
+    if (score === 'Call Clutch') {
       buttons.value = [...clutchButtons]
-    } else if (score === "Cancel") {
+    } else if (score === 'Cancel') {
       buttons.value = [...defaultButtons]
     } else {
-      // We look for the 
       const value = buttons.value.find(b => b.text === score)?.score ?? score
       buttons.value = [...defaultButtons]
       emit('score', value)
@@ -50,42 +49,58 @@
 <template>
   <div class="grid-container">
     <div v-for="item in displayButtons" class="grid-child">
-      <button class="button-circle" :style="item.style" :disabled="props.disabled || (item.text === 'Call Clutch' && !props.clutchAvailable)" @click="urbanScore(item.text)">{{ item.text }}</button>
+      <button
+        class="button-circle"
+        :class="`color-${item.color}`"
+        :disabled="props.disabled || (item.text === 'Call Clutch' && !props.clutchAvailable)"
+        @click="urbanScore(item.text)"
+      >{{ item.text }}</button>
     </div>
   </div>
 </template>
 
-<style>
+<style scoped>
 .grid-container {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-gap: 20px;
 }
+
 .grid-child {
   display: flex;
   justify-content: center;
 }
+
 .button-circle {
+  display: flex;
   justify-content: center;
   align-items: center;
   text-align: center;
   width: 125px;
   height: 125px;
   border-radius: 100%;
-  background-color: #04AA6D;
-  display: flex;
   border: none;
   font-family: inherit;
   font-size: 1.55rem;
   font-weight: bold;
+  color: #fff;
   cursor: pointer;
 }
+
 .button-circle:active {
   transition: 0.3s;
   transform: scale(1.13);
 }
+
 .button-circle:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.color-blue   { background: #3b82f6; }
+.color-red    { background: #ef4444; }
+.color-purple { background: #8b5cf6; }
+.color-orange { background: #f59e0b; }
+.color-green  { background: #059669; }
+.color-gray   { background: #6b7280; }
 </style>

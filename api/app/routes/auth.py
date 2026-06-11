@@ -21,6 +21,9 @@ router = APIRouter(
     tags=["Auth"],
 )
 
+# Tokens are valid for one day; clients silently refresh once they pass 12 hours
+TOKEN_TTL_SECONDS = 86400
+
 @router.post("/register", response_model=RegisterResponse, dependencies=[Depends(rate_limit(5, 60))])
 async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient = Depends(get_mongo_client)):
     logger.info("Register attempt")
@@ -74,9 +77,23 @@ async def login(body: LoginRequest, mongo_client: MongoClient = Depends(get_mong
         logger.warning("Failed login attempt")
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = await create_access_token(subject=username, redis_client=redis_client, expires_seconds=3600)
+    token = await create_access_token(subject=username, redis_client=redis_client, expires_seconds=TOKEN_TTL_SECONDS)
     logger.info("Login successful")
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=token, expires_in=TOKEN_TTL_SECONDS)
+
+
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(rate_limit(10, 60))])
+async def refresh(
+    current_user: str = Depends(get_current_user),
+    redis_client: RedisClient = Depends(get_redis_client),
+):
+    """
+    Issue a fresh token for the authenticated user. The presented token stays
+    valid until its natural expiry so in-flight requests are not broken.
+    """
+    token = await create_access_token(subject=current_user, redis_client=redis_client, expires_seconds=TOKEN_TTL_SECONDS)
+    logger.info("Token refreshed for %s", current_user)
+    return TokenResponse(access_token=token, expires_in=TOKEN_TTL_SECONDS)
 
 
 @router.post("/logout")

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin</title>
-    <link rel="stylesheet" href="/static/admin.css?v=6">
+    <link rel="stylesheet" href="/static/admin.css?v=7">
 </head>
 <body>
 
@@ -26,10 +26,13 @@
         <div class="col-body">
             {% for row in "events" | retrieve_x_latest(25, "timestamp") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/events/{{ row.event_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/events/{{ row.event_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('events', '{{ row.event_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.event_id }}</div>
                 <div class="ts">{{ row.timestamp | datetimeformat }}</div>
-                {% if row.venue_id %}<div class="detail">venue: {{ row.venue_id }}</div>{% endif %}
+                {% if row.event_name %}<div class="detail">{{ row.event_name }}</div>{% endif %}
                 <div>
                     {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
                     {% if row.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
@@ -50,7 +53,10 @@
         <div class="col-body">
             {% for row in "matches" | retrieve_x_latest(25, "timestamp") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/matches/{{ row.match_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/matches/{{ row.match_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('matches', '{{ row.match_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.match_id }}</div>
                 <div class="ts">{{ row.timestamp | datetimeformat }}</div>
                 <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
@@ -74,7 +80,10 @@
         <div class="col-body">
             {% for row in "rounds" | retrieve_x_latest(25, "timestamp") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/rounds/{{ row.round_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/rounds/{{ row.round_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('rounds', '{{ row.round_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.round_id }}</div>
                 <div class="ts">{{ row.timestamp | datetimeformat }}</div>
                 <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
@@ -95,7 +104,10 @@
         <div class="col-body">
             {% for row in "throws" | retrieve_x_latest(25, "timestamp") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/throws/{{ row.throw_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/throws/{{ row.throw_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('throws', '{{ row.throw_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.throw_id }}</div>
                 <div class="ts">{{ row.timestamp | datetimeformat }}</div>
                 <div class="detail">player: {{ row.player_id }}</div>
@@ -121,7 +133,10 @@
         <div class="col-body">
             {% for row in "players" | retrieve_x_latest(25, "created_at") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/players/{{ row.player_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/players/{{ row.player_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('players', '{{ row.player_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.player_id }}</div>
                 <div class="detail">{{ row.player_name }}</div>
                 {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
@@ -138,7 +153,10 @@
         <div class="col-body">
             {% for row in "users" | retrieve_x_latest(25, "created_at") %}
             <div class="entry">
-                <a class="entry-info" href="/admin/users/{{ row.user_id }}">i</a>
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/users/{{ row.user_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('users', '{{ row.user_id }}')">×</button>
+                </div>
                 <div class="id">{{ row.user_name }}</div>
                 <div class="detail">{{ row.email }}</div>
                 {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
@@ -280,6 +298,22 @@
 </div>
 
 <script>
+async function deleteDoc(collection, docId) {
+    const label = collection.replace(/s$/, '');
+    if (!confirm('Delete this ' + label + '?')) return;
+    try {
+        const resp = await fetch('/admin/' + collection + '/' + docId, { method: 'DELETE' });
+        if (resp.ok || resp.status === 204) {
+            window.location.reload();
+        } else {
+            const err = await resp.json().catch(function() { return {}; });
+            alert(err.detail || 'Failed to delete ' + label);
+        }
+    } catch (e) {
+        alert('Network error');
+    }
+}
+
 function openModal(name) {
     document.getElementById('modal-' + name).classList.add('open');
     const first = document.querySelector('#modal-' + name + ' input');

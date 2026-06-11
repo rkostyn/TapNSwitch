@@ -3,7 +3,10 @@ from app.db.mongo import MongoClient
 from app.dependencies import get_mongo_client, get_current_user, rate_limit
 from app.repositories.match_repository import MatchRepository
 from app.repositories.event_repository import EventRepository
-from app.models.match import Match, MatchCreate
+from app.repositories.throw_repository import ThrowRepository
+from app.models.match import Match, MatchCreate, MatchRoundsUpdate
+from app.models.throw import ThrowsGet
+from app.services.tournament import compute_match_winner
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -77,14 +80,31 @@ async def finish_match(
         raise HTTPException(status_code=404, detail="Match not found")
     if existing.is_finished:
         raise HTTPException(status_code=423, detail="Match is already finished")
+
+    throw_repo = ThrowRepository(mongo_client)
+    throws = await throw_repo.get_throws_by_criteria(ThrowsGet(match_id=match_id))
+    winner = compute_match_winner(existing.player_1_id, existing.player_2_id, throws)
+    if existing.match_type == "bracket" and winner is None:
+        raise HTTPException(status_code=409, detail="Match is tied — adjust scoring before finishing")
+
     result = await repo.finish_match(match_id)
     if not result:
         raise HTTPException(status_code=423, detail="Match is already finished")
+    result = await repo.set_winner(match_id, winner)
+
+    # Advance the winner into the next bracket round
+    if existing.match_type == "bracket" and existing.event_id and winner is not None and existing.bracket_round is not None:
+        next_match = await repo.get_bracket_match(
+            existing.event_id, existing.bracket_round + 1, existing.bracket_slot // 2
+        )
+        if next_match:
+            await repo.set_bracket_player(next_match.match_id, existing.bracket_slot % 2, winner)
+            logger.info("Advanced %s to bracket round %d", winner, existing.bracket_round + 1)
     return result
 
 
-@router.post("/{match_id}/lock", response_model=Match)
-async def lock_match(
+@router.post("/{match_id}/reopen", response_model=Match)
+async def reopen_match(
     match_id: str,
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
@@ -93,10 +113,51 @@ async def lock_match(
     existing = await repo.get_match(match_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Match not found")
+    if not existing.is_finished:
+        raise HTTPException(status_code=409, detail="Match is not finished")
+    result = await repo.reopen_match(match_id)
+    if not result:
+        raise HTTPException(status_code=409, detail="Match is not finished")
+    return result
+
+
+@router.patch("/{match_id}/rounds", response_model=Match)
+async def update_match_rounds(
+    match_id: str,
+    body: MatchRoundsUpdate,
+    current_user: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    repo = MatchRepository(mongo_client)
+    existing = await repo.get_match(match_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if existing.is_finished:
+        raise HTTPException(status_code=423, detail="Match is finished")
+    return await repo.update_rounds_per_match(match_id, body.rounds_per_match)
+
+
+@router.post("/{match_id}/lock", response_model=Match)
+async def lock_match(
+    match_id: str,
+    force: bool = False,
+    current_user: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    repo = MatchRepository(mongo_client)
+    existing = await repo.get_match(match_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if force:
+        logger.info("Force lock takeover on match %s by %s (was %s)", match_id, current_user, existing.locked_by)
+        return await repo.force_lock_match(match_id, current_user)
     result = await repo.lock_match(match_id, current_user)
     if not result:
         logger.warning("Lock attempt on already-locked match %s", match_id)
-        raise HTTPException(status_code=423, detail="Match is already locked")
+        raise HTTPException(
+            status_code=423,
+            detail={"message": "Match is already locked", "locked_by": existing.locked_by},
+        )
     return result
 
 

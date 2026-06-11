@@ -1,6 +1,6 @@
 import pytest
 
-EVENT_PAYLOAD = {"venue_id": "test_venue_1"}
+EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {
     "player_1_id": "player_1",
     "player_2_id": "player_2",
@@ -197,4 +197,95 @@ def test_create_match_player_id_too_long(client, auth_token):
 
 def test_create_match_nonexistent_event(client, auth_token):
     response = client.post("/match", json={**MATCH_PAYLOAD, "event_id": "no-such-event"}, headers=auth_headers(auth_token))
+    assert response.status_code == 404
+
+# ---------------------------------------------------------------------------
+# Lock takeover, rounds update, reopen
+# ---------------------------------------------------------------------------
+
+def make_match(client, auth_token, **extra):
+    event_id = make_event(client, auth_token)
+    return client.post(
+        "/match", json={**MATCH_PAYLOAD, "event_id": event_id, **extra}, headers=auth_headers(auth_token)
+    ).json()
+
+
+@pytest.mark.asyncio
+async def test_lock_match_held_by_other_reports_holder(client, auth_token, mongo_client):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
+    collection = await mongo_client.get_collection("axes", "matches")
+    await collection.update_one({"match_id": match["match_id"]}, {"$set": {"locked_by": "other_coach"}})
+
+    response = client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
+    assert response.status_code == 423
+    assert response.json()["detail"]["locked_by"] == "other_coach"
+
+
+@pytest.mark.asyncio
+async def test_force_lock_takes_over(client, auth_token, mongo_client):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
+    collection = await mongo_client.get_collection("axes", "matches")
+    await collection.update_one({"match_id": match["match_id"]}, {"$set": {"locked_by": "other_coach"}})
+
+    response = client.post(f"/match/{match['match_id']}/lock?force=true", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_locked"] is True
+    assert data["locked_by"] == "testuser"
+
+
+def test_match_defaults(client, auth_token):
+    match = make_match(client, auth_token)
+    assert match["match_type"] == "swiss"
+    assert match["rounds_per_match"] == 2
+    assert match["winner_id"] is None
+
+
+def test_update_match_rounds(client, auth_token):
+    match = make_match(client, auth_token)
+    response = client.patch(
+        f"/match/{match['match_id']}/rounds", json={"rounds_per_match": 1}, headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["rounds_per_match"] == 1
+
+
+def test_update_match_rounds_invalid(client, auth_token):
+    match = make_match(client, auth_token)
+    response = client.patch(
+        f"/match/{match['match_id']}/rounds", json={"rounds_per_match": 0}, headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 422
+
+
+def test_update_match_rounds_finished(client, auth_token):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/finish", headers=auth_headers(auth_token))
+    response = client.patch(
+        f"/match/{match['match_id']}/rounds", json={"rounds_per_match": 1}, headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 423
+
+
+def test_reopen_match(client, auth_token):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/finish", headers=auth_headers(auth_token))
+    response = client.post(f"/match/{match['match_id']}/reopen", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_finished"] is False
+    assert data["finished_at"] is None
+    assert data["winner_id"] is None
+
+
+def test_reopen_unfinished_match_conflicts(client, auth_token):
+    match = make_match(client, auth_token)
+    response = client.post(f"/match/{match['match_id']}/reopen", headers=auth_headers(auth_token))
+    assert response.status_code == 409
+
+
+def test_reopen_match_not_found(client, auth_token):
+    response = client.post("/match/nonexistent/reopen", headers=auth_headers(auth_token))
     assert response.status_code == 404

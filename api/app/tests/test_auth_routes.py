@@ -33,7 +33,34 @@ def test_login(client):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 3600
+    assert data["expires_in"] == 86400
+
+
+def test_refresh_token(client):
+    credentials = f"{test_register_request.username}:{test_register_request.password}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+    old_token = client.post("/auth/login", json={"credentials": encoded}).json()["access_token"]
+
+    response = client.post("/auth/refresh", headers={"Authorization": f"Bearer {old_token}"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_in"] == 86400
+    new_token = data["access_token"]
+    assert new_token != old_token
+
+    # The new token authenticates, and the old one stays valid until expiry
+    assert client.get("/auth/user", headers={"Authorization": f"Bearer {new_token}"}).status_code == 200
+    assert client.get("/auth/user", headers={"Authorization": f"Bearer {old_token}"}).status_code == 200
+
+
+def test_refresh_invalid_token(client):
+    response = client.post("/auth/refresh", headers={"Authorization": "Bearer bogus-token"})
+    assert response.status_code == 401
+
+
+def test_refresh_unauthenticated(client):
+    response = client.post("/auth/refresh")
+    assert response.status_code in (401, 403)
 
 
 def test_login_invalid_credentials(client):

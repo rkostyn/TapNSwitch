@@ -1,0 +1,18 @@
+As a user I want the ability to add player to an event. 
+As a user I want to mark throwers as “late”, delaying the games until later.
+As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:
+  - Ability to control how many rounds and how many matches for the group
+  - Default should be 2 matches of 2 rounds per thrower
+  - Ability to go back to previously played matches and rounds within those matches to adjust scoring
+  - Users have a manual button to generate final swiss scores to allow the coach to go back and edit, if needed
+  - Following the end of the swiss round, a screen should show all throwers with their scores, sorted by highest points. 
+  - If tied in total points, use the following as tie breakers: 
+    - First, the number of rounds won
+    - Second, the person with the highest round takes it.
+  - A manual button to generate the single elimination tournament bracket
+  - Ability to edit the number of rounds in the tournament matches at the start…I’d recommend immediately after clicking to start the bracket. The default should be 3 rounds per match.
+  - Ability to modify the number of rounds from 3 to 1…this will help if the coach is running low on time during the tournament. 
+Show a visual bracket after a swiss style tournament of the tournament…coaches will select matches from that visual bracket
+If a match selected is already selected by a different coach/ipad, a notice should be provided with the option to override and take that match over
+If a user is playing an event match, when the match is complete show the events page instead of a new match.
+

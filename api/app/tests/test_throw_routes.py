@@ -1,6 +1,6 @@
 import pytest
 
-EVENT_PAYLOAD = {"venue_id": "test_venue_1"}
+EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 ROUND_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 THROW_PAYLOAD = {
@@ -100,7 +100,7 @@ def test_search_throws_by_player(client, auth_token):
     player_id = "search_test_player_functional"
     payload = {**make_throw_payload(match_id, round_id), "player_id": player_id}
     client.post("/throw/submit", json=payload, headers=auth_headers(auth_token))
-    response = client.request("GET", "/throw/search", json={"player_id": player_id})
+    response = client.get("/throw/search", params={"player_id": player_id})
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -111,7 +111,7 @@ def test_search_throws_by_match(client, auth_token):
     _, match_id = make_match(client, auth_token)
     round_id = make_round(client, auth_token, match_id)
     client.post("/throw/submit", json=make_throw_payload(match_id, round_id), headers=auth_headers(auth_token))
-    response = client.request("GET", "/throw/search", json={"match_id": match_id})
+    response = client.get("/throw/search", params={"match_id": match_id})
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -119,7 +119,7 @@ def test_search_throws_by_match(client, auth_token):
 
 
 def test_search_throws_no_results(client):
-    response = client.request("GET", "/throw/search", json={"player_id": "player-that-never-threw"})
+    response = client.get("/throw/search", params={"player_id": "player-that-never-threw"})
     assert response.status_code == 200
     assert response.json() == []
 

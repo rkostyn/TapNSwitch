@@ -1,0 +1,498 @@
+<script setup>
+  import { ref, computed, onMounted } from 'vue'
+  import {
+    getEvent,
+    addPlayer,
+    setPlayerLate,
+    updateSwissConfig,
+    generateSwissMatches,
+    generateSwissScores,
+    generateBracket,
+    getMatchesByEvent,
+    lockMatch,
+    reopenMatch,
+    updateMatchRounds,
+  } from '../api'
+  import BracketView from './BracketView.vue'
+
+  const props = defineProps(['eventId'])
+  const emit = defineEmits(['back', 'selectMatch'])
+
+  const event = ref(null)
+  const matches = ref([])
+  const loading = ref(true)
+  const error = ref('')
+  const busy = ref(false)
+
+  const newPlayer = ref('')
+  const configMatches = ref(2)
+  const configRounds = ref(2)
+
+  const showBracketPrompt = ref(false)
+  const bracketRounds = ref(3)
+
+  // Takeover state: a match someone else holds, awaiting override confirmation
+  const takeover = ref(null) // { match, lockedBy }
+  // Reopen state: a finished match awaiting confirmation to edit
+  const reopenTarget = ref(null)
+
+  const swissMatches = computed(() => matches.value.filter(m => m.match_type === 'swiss'))
+  const bracketMatches = computed(() => matches.value.filter(m => m.match_type === 'bracket'))
+  const swissGenerated = computed(() => !!event.value?.swiss_generated_at)
+  const bracketGenerated = computed(() => !!event.value?.bracket_generated_at)
+  const standings = computed(() => event.value?.swiss_standings ?? null)
+
+  async function load() {
+    loading.value = true
+    error.value = ''
+    try {
+      event.value = await getEvent(props.eventId)
+      matches.value = await getMatchesByEvent(props.eventId)
+      configMatches.value = event.value.swiss_matches_per_player
+      configRounds.value = event.value.swiss_rounds_per_match
+    } catch (e) {
+      error.value = 'Failed to load event.'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  onMounted(load)
+
+  function apiError(e, fallback) {
+    const detail = e?.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (detail?.message) return detail.message
+    return fallback
+  }
+
+  async function run(action, fallback) {
+    error.value = ''
+    busy.value = true
+    try {
+      await action()
+    } catch (e) {
+      error.value = apiError(e, fallback)
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function submitAddPlayer() {
+    const name = newPlayer.value.trim()
+    if (!name) return
+    await run(async () => {
+      event.value = await addPlayer(props.eventId, name)
+      newPlayer.value = ''
+    }, 'Failed to add player.')
+  }
+
+  async function toggleLate(player) {
+    const late = !event.value.late_players.includes(player)
+    await run(async () => {
+      event.value = await setPlayerLate(props.eventId, player, late)
+    }, 'Failed to update player.')
+  }
+
+  async function saveConfigAndGenerate() {
+    await run(async () => {
+      event.value = await updateSwissConfig(props.eventId, configMatches.value, configRounds.value)
+      await generateSwissMatches(props.eventId)
+      await load()
+    }, 'Failed to generate swiss matches.')
+  }
+
+  async function generateScores() {
+    await run(async () => {
+      const result = await generateSwissScores(props.eventId)
+      event.value = { ...event.value, swiss_standings: result }
+    }, 'Failed to generate swiss scores.')
+  }
+
+  async function confirmBracket() {
+    await run(async () => {
+      await generateBracket(props.eventId, bracketRounds.value)
+      showBracketPrompt.value = false
+      await load()
+    }, 'Failed to generate bracket.')
+  }
+
+  async function changeMatchRounds(match, rounds) {
+    await run(async () => {
+      await updateMatchRounds(match.match_id, rounds)
+      await load()
+    }, 'Failed to update rounds.')
+  }
+
+  function matchLabel(match) {
+    return `${match.player_1_id ?? 'TBD'} vs ${match.player_2_id ?? 'TBD'}`
+  }
+
+  function matchStatus(match) {
+    if (match.is_finished) return 'finished'
+    if (match.is_locked) return 'locked'
+    return 'open'
+  }
+
+  async function selectMatch(match) {
+    if (!match.player_1_id || !match.player_2_id) {
+      error.value = 'Both players must be decided before this match can start.'
+      return
+    }
+    if (match.is_finished) {
+      reopenTarget.value = match
+      return
+    }
+    await acquire(match, false)
+  }
+
+  async function confirmReopen() {
+    const match = reopenTarget.value
+    reopenTarget.value = null
+    await run(async () => {
+      await reopenMatch(match.match_id)
+      await acquire({ ...match, is_finished: false }, false)
+    }, 'Failed to reopen match.')
+  }
+
+  async function acquire(match, force) {
+    error.value = ''
+    busy.value = true
+    try {
+      const locked = await lockMatch(match.match_id, force)
+      emit('selectMatch', { match: locked, event: event.value })
+    } catch (e) {
+      if (e?.response?.status === 423) {
+        takeover.value = { match, lockedBy: e.response.data?.detail?.locked_by ?? 'another coach' }
+      } else {
+        error.value = apiError(e, 'Failed to select match.')
+      }
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function confirmTakeover() {
+    const match = takeover.value.match
+    takeover.value = null
+    await acquire(match, true)
+  }
+</script>
+
+<template>
+  <div class="event-detail">
+    <div class="modal-header">
+      <h2 class="modal-title">{{ event?.event_name ?? 'Event' }}</h2>
+      <button class="modal-cancel back-btn" @click="emit('back')">Back</button>
+    </div>
+
+    <div v-if="loading" class="state-msg">Loading…</div>
+    <template v-else-if="event">
+      <p v-if="error" class="modal-error">{{ error }}</p>
+
+      <!-- Players -->
+      <section class="section">
+        <h3 class="section-title">Players</h3>
+        <ul class="player-list">
+          <li v-for="player in event.players" :key="player" class="player-item">
+            <span class="player-name">
+              {{ player }}
+              <span v-if="event.late_players.includes(player)" class="late-badge">Late</span>
+            </span>
+            <button
+              class="outline-pill-btn late-toggle"
+              :disabled="busy || event.is_finished"
+              @click="toggleLate(player)"
+            >
+              {{ event.late_players.includes(player) ? 'Arrived' : 'Mark Late' }}
+            </button>
+          </li>
+        </ul>
+        <div class="add-player-row" v-if="!event.is_finished">
+          <input
+            class="modal-input add-player-input"
+            v-model="newPlayer"
+            placeholder="New player name"
+            :disabled="busy"
+            @keyup.enter="submitAddPlayer"
+          />
+          <button class="modal-submit" :disabled="busy || !newPlayer.trim()" @click="submitAddPlayer">Add</button>
+        </div>
+      </section>
+
+      <!-- Swiss setup / matches -->
+      <section class="section">
+        <h3 class="section-title">Swiss Stage</h3>
+        <template v-if="!swissGenerated">
+          <div class="config-row">
+            <label class="modal-label">Matches per thrower</label>
+            <input class="modal-input config-input" type="number" min="1" max="20" v-model.number="configMatches" />
+          </div>
+          <div class="config-row">
+            <label class="modal-label">Rounds per match</label>
+            <input class="modal-input config-input" type="number" min="1" max="10" v-model.number="configRounds" />
+          </div>
+          <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="saveConfigAndGenerate">
+            Generate Swiss Matches
+          </button>
+        </template>
+        <template v-else>
+          <ul class="match-list">
+            <li
+              v-for="match in swissMatches"
+              :key="match.match_id"
+              class="match-item"
+              :class="matchStatus(match)"
+              @click="selectMatch(match)"
+            >
+              <span class="match-name">{{ matchLabel(match) }}</span>
+              <span class="match-status">
+                <template v-if="match.is_finished">{{ match.winner_id ? `Won: ${match.winner_id}` : 'Finished' }}</template>
+                <template v-else-if="match.is_locked">In use by {{ match.locked_by }}</template>
+                <template v-else>Open</template>
+              </span>
+            </li>
+          </ul>
+          <button class="modal-submit full-btn" :disabled="busy" @click="generateScores">
+            Generate Swiss Scores
+          </button>
+        </template>
+      </section>
+
+      <!-- Standings -->
+      <section class="section" v-if="standings">
+        <h3 class="section-title">Swiss Standings</h3>
+        <table class="standings-table">
+          <thead>
+            <tr><th>#</th><th>Thrower</th><th>Points</th><th>Rounds Won</th><th>Best Round</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(s, i) in standings" :key="s.player">
+              <td>{{ i + 1 }}</td>
+              <td>{{ s.player }}</td>
+              <td>{{ s.points }}</td>
+              <td>{{ s.rounds_won }}</td>
+              <td>{{ s.highest_round }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <template v-if="!bracketGenerated">
+          <button v-if="!showBracketPrompt" class="modal-submit full-btn" :disabled="busy" @click="showBracketPrompt = true; bracketRounds = 3">
+            Generate Tournament Bracket
+          </button>
+          <div v-else class="bracket-prompt">
+            <label class="modal-label">Rounds per tournament match</label>
+            <input class="modal-input config-input" type="number" min="1" max="10" v-model.number="bracketRounds" />
+            <div class="modal-actions">
+              <button class="modal-cancel" :disabled="busy" @click="showBracketPrompt = false">Cancel</button>
+              <button class="modal-submit" :disabled="busy" @click="confirmBracket">Start Bracket</button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- Bracket -->
+      <section class="section" v-if="bracketGenerated">
+        <h3 class="section-title">Tournament Bracket</h3>
+        <BracketView :matches="bracketMatches" @select="selectMatch" @updateRounds="changeMatchRounds" />
+      </section>
+    </template>
+
+    <!-- Lock takeover notice -->
+    <div v-if="takeover" class="confirm-box">
+      <p class="confirm-text">
+        This match is already being scored by <strong>{{ takeover.lockedBy }}</strong>.
+      </p>
+      <div class="modal-actions">
+        <button class="modal-cancel" @click="takeover = null">Cancel</button>
+        <button class="modal-submit danger" @click="confirmTakeover">Override &amp; Take Over</button>
+      </div>
+    </div>
+
+    <!-- Reopen finished match notice -->
+    <div v-if="reopenTarget" class="confirm-box">
+      <p class="confirm-text">
+        <strong>{{ matchLabel(reopenTarget) }}</strong> is finished. Reopen it to adjust scoring?
+      </p>
+      <div class="modal-actions">
+        <button class="modal-cancel" @click="reopenTarget = null">Cancel</button>
+        <button class="modal-submit" @click="confirmReopen">Reopen Match</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.event-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.back-btn {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+}
+
+.state-msg {
+  color: #475569;
+  font-size: 0.95rem;
+  padding: 12px 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-purple);
+  border-bottom: 1px solid var(--color-bg-secondary);
+  padding-bottom: 4px;
+}
+
+.player-list, .match-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.player-item, .match-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.match-item {
+  cursor: pointer;
+}
+
+.match-item:hover {
+  border-color: var(--color-purple);
+}
+
+.match-item.finished {
+  opacity: 0.7;
+}
+
+.match-item.locked .match-status {
+  color: #fbbf24;
+}
+
+.player-name, .match-name {
+  font-weight: bold;
+  color: var(--color-text);
+}
+
+.match-status {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.late-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  background: #3b2800;
+  color: #fbbf24;
+  border-radius: 10px;
+}
+
+.late-toggle {
+  font-size: 0.7rem;
+  padding: 4px 10px;
+}
+
+.add-player-row {
+  display: flex;
+  gap: 8px;
+}
+
+.add-player-input { flex: 1; }
+
+.config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.config-row .modal-label { margin: 0; }
+
+.config-input {
+  width: 80px;
+  text-align: center;
+}
+
+.full-btn {
+  width: 100%;
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.standings-table th {
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--color-purple);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  border-bottom: 2px solid var(--color-purple);
+}
+
+.standings-table td {
+  padding: 6px 8px;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-bg-secondary);
+}
+
+.standings-table tr:first-child td {
+  color: #34d399;
+  font-weight: bold;
+}
+
+.bracket-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.confirm-box {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg-input);
+  border: 1px solid #eab308;
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+.confirm-text {
+  margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.modal-submit.danger {
+  background: #b45309;
+}
+</style>
