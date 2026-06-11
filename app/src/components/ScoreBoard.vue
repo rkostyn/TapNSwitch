@@ -1,36 +1,23 @@
 <script setup>
-  import { ref, computed, onMounted } from 'vue'
-  import axios from 'axios'
+  import { ref, computed, watch } from 'vue'
   import UrbanScore from './UrbanScore.vue'
-  import { config } from '../config'
-  import { getCookie } from '../cookies'
+  import {
+    startRound as apiStartRound,
+    submitThrow,
+    deleteThrow,
+    getThrows,
+    getRoundsByMatch,
+    finishMatch,
+    unlockMatch,
+  } from '../api'
 
-  const props = defineProps(['player1Name', 'player2Name', 'totalRounds'])
-  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig'])
+  const props = defineProps(['player1Name', 'player2Name', 'totalRounds', 'matchContext'])
+  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone'])
 
   const THROWS = 5
 
-  // Match ID — generated once per match, reset on new game
+  // Match ID — generated once per casual match; the event match id when one is selected
   const matchId = ref(crypto.randomUUID())
-
-  async function startRound(sequence) {
-    const token = getCookie('access_token')
-    const tokenType = getCookie('token_type') ?? 'Bearer'
-    try {
-      await axios.post(`${config.apiUrl}/round`, {
-        match_id: matchId.value,
-        player_1_id: props.player1Name,
-        player_2_id: props.player2Name,
-        sequence,
-      }, {
-        headers: { Authorization: `${tokenType} ${token}` },
-      })
-    } catch (e) {
-      console.error('Failed to start round:', e)
-    }
-  }
-
-  onMounted(() => startRound(1))
 
   // Game state
   const currentRound = ref(1)
@@ -40,6 +27,11 @@
   const completedRounds = ref([])
   const selected = ref(null) // { player: 1|2, index: number }
   const sidesSwapped = ref(false)
+
+  // Event-match sync state
+  const roundIdBySeq = ref({}) // round sequence -> round_id on the server
+  const syncError = ref('')
+  const finishing = ref(false)
 
   // Which player name/scores are on the left vs right panel this round
   const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
@@ -93,13 +85,46 @@
       : (() => { const num = parseInt(value); return isNaN(num) ? null : { value: num, drop: false } })()
     if (!entry) return
 
+    let oldEntry = null
     if (selected.value?.player === player) {
+      oldEntry = scoresRef.value[selected.value.index]
       scoresRef.value[selected.value.index] = entry
       selected.value = null
     } else {
       const idx = scoresRef.value.indexOf(null)
-      if (idx !== -1) scoresRef.value[idx] = entry
+      if (idx === -1) return
+      scoresRef.value[idx] = entry
     }
+    syncEntry(entry, player, oldEntry)
+  }
+
+  // Persist a placed/edited score to the API when scoring an event match
+  async function syncEntry(entry, player, oldEntry) {
+    const ctx = props.matchContext
+    if (!ctx) return
+    try {
+      syncError.value = ''
+      if (oldEntry?.throwId) await deleteThrow(oldEntry.throwId)
+      await ensureRound(currentRound.value)
+      entry.throwId = await submitThrow({
+        playerId: player === 1 ? ctx.player1Id : ctx.player2Id,
+        roundId: roundIdBySeq.value[currentRound.value],
+        matchId: matchId.value,
+        eventId: ctx.eventId,
+        points: entry.value,
+        isDrop: entry.drop,
+        clutchCalled: entry.value === 7,
+      })
+    } catch (e) {
+      syncError.value = 'Score was not saved to the server.'
+    }
+  }
+
+  async function ensureRound(seq) {
+    const ctx = props.matchContext
+    if (!ctx || roundIdBySeq.value[seq]) return
+    const round = await apiStartRound(matchId.value, ctx.player1Id, ctx.player2Id, seq)
+    roundIdBySeq.value = { ...roundIdBySeq.value, [seq]: round.round_id }
   }
 
   const applyScore1 = (value) => applyScore(scores1, 1, value)
@@ -107,7 +132,11 @@
 
   function resetScore(player, index) {
     const scores = player === 1 ? scores1 : scores2
+    const old = scores.value[index]
     scores.value[index] = null
+    if (props.matchContext && old?.throwId) {
+      deleteThrow(old.throwId).catch(() => { syncError.value = 'Score was not removed on the server.' })
+    }
   }
 
   function nextRound() {
@@ -117,21 +146,109 @@
     scores2.value = Array(THROWS).fill(null)
     selected.value = null
     sidesSwapped.value = !sidesSwapped.value
-    startRound(1)
+    ensureRound(currentRound.value).catch(() => { syncError.value = 'Could not start the round on the server.' })
   }
 
-  function resetGame() {
+  function clearLocalState() {
     currentRound.value = 1
     scores1.value = Array(THROWS).fill(null)
     scores2.value = Array(THROWS).fill(null)
     completedRounds.value = []
     selected.value = null
     sidesSwapped.value = false
+    roundIdBySeq.value = {}
+    syncError.value = ''
+  }
+
+  function resetGame() {
+    if (props.matchContext) {
+      initEventMatch()
+      return
+    }
+    clearLocalState()
     matchId.value = crypto.randomUUID()
-    startRound(1)
   }
 
   defineExpose({ resetGame })
+
+  // Rebuild local scoring state from the server when an event match is selected,
+  // so previously played rounds can be reviewed and adjusted.
+  async function initEventMatch() {
+    clearLocalState()
+    const ctx = props.matchContext
+    if (!ctx) {
+      matchId.value = crypto.randomUUID()
+      return
+    }
+    matchId.value = ctx.matchId
+    try {
+      const rounds = await getRoundsByMatch(ctx.matchId)
+      const map = {}
+      for (const r of rounds) map[r.sequence] = r.round_id
+      roundIdBySeq.value = map
+      const throws = await getThrows({ matchId: ctx.matchId })
+      restoreFromThrows(throws)
+      await ensureRound(currentRound.value)
+    } catch (e) {
+      syncError.value = 'Could not sync this match with the server.'
+    }
+  }
+
+  function restoreFromThrows(throws) {
+    const ctx = props.matchContext
+    const bySeq = {}
+    for (const [seq, roundId] of Object.entries(roundIdBySeq.value)) {
+      const arr1 = Array(THROWS).fill(null)
+      const arr2 = Array(THROWS).fill(null)
+      const roundThrows = throws
+        .filter(t => t.round_id === roundId)
+        .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
+      for (const t of roundThrows) {
+        const arr = t.player_id === ctx.player1Id ? arr1 : t.player_id === ctx.player2Id ? arr2 : null
+        if (!arr) continue
+        const idx = arr.indexOf(null)
+        if (idx !== -1) arr[idx] = { value: t.points, drop: !!t.is_drop, throwId: t.throw_id }
+      }
+      bySeq[Number(seq)] = { arr1, arr2 }
+    }
+
+    const completed = []
+    let cur = 1
+    let curScores = null
+    for (let seq = 1; seq <= props.totalRounds; seq++) {
+      const entry = bySeq[seq]
+      const complete = entry && !entry.arr1.includes(null) && !entry.arr2.includes(null)
+      if (complete && seq < props.totalRounds) {
+        completed.push({ scores1: entry.arr1, scores2: entry.arr2 })
+        continue
+      }
+      cur = seq
+      curScores = entry ?? null
+      break
+    }
+    completedRounds.value = completed
+    currentRound.value = cur
+    scores1.value = curScores ? curScores.arr1 : Array(THROWS).fill(null)
+    scores2.value = curScores ? curScores.arr2 : Array(THROWS).fill(null)
+    sidesSwapped.value = (cur - 1) % 2 === 1
+  }
+
+  watch(() => props.matchContext, () => { resetGame() }, { immediate: true })
+
+  async function finishEventMatch() {
+    finishing.value = true
+    syncError.value = ''
+    try {
+      await finishMatch(matchId.value)
+      try { await unlockMatch(matchId.value) } catch (e) { /* lock may already be released */ }
+      emit('matchDone')
+    } catch (e) {
+      const detail = e?.response?.data?.detail
+      syncError.value = typeof detail === 'string' ? detail : (detail?.message ?? 'Failed to finish the match.')
+    } finally {
+      finishing.value = false
+    }
+  }
 
   // Score cell helpers
   function selectScore(player, index) {
@@ -159,7 +276,9 @@
 <template>
   <div class="scoreboard-root">
     <div class="round-bar">
+      <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
       <span class="round-label">Round {{ currentRound }} of {{ totalRounds }}</span>
+      <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
 
     <div class="tab-bar">
@@ -223,7 +342,10 @@
     </div>
 
     <div class="results-section">
-      <button v-if="gameOver" class="new-game-btn" @click="emit('requestConfig')">New Game</button>
+      <button v-if="gameOver && matchContext" class="next-round-btn" :disabled="finishing" @click="finishEventMatch">
+        {{ finishing ? 'Finishing…' : 'Finish Match' }}
+      </button>
+      <button v-else-if="gameOver" class="new-game-btn" @click="emit('requestConfig')">New Game</button>
       <button v-else-if="roundComplete" class="next-round-btn" @click="nextRound">
         Round {{ currentRound }} complete — Start Round {{ currentRound + 1 }}
       </button>
@@ -285,6 +407,23 @@
   font-weight: bold;
   letter-spacing: 1px;
   color: #a78bfa;
+}
+
+.event-banner {
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: #34d399;
+}
+
+.sync-error {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #fca5a5;
+  background: #3b1212;
+  padding: 4px 12px;
+  border-radius: 8px;
 }
 
 .app-layout {

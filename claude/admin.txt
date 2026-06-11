@@ -1,0 +1,5 @@
+When a user puts in the wrong password and the API returns a 401, notify them of the password being wrong.
+When a user is successfully logged in, remove the login and register buttons and replace it with the users name.
+When a user logs in their token is valid for a day.  
+If a users token is older than 12 hours, refresh the token without prompting the user.
+When a user is logged in, show the events button, allowing them to create events.

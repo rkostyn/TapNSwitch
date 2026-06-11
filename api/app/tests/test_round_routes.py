@@ -1,6 +1,6 @@
 import pytest
 
-EVENT_PAYLOAD = {"venue_id": "test_venue_1"}
+EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 ROUND_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 

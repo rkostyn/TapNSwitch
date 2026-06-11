@@ -170,8 +170,8 @@ def test_get_admin_logout_clears_session(client):
 # ---------------------------------------------------------------------------
 
 def test_patch_admin_doc_unauthenticated(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "patch_unauth_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
-    response = client.patch(f"/admin/events/{event_id}", json={"venue_id": "x"})
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
+    response = client.patch(f"/admin/events/{event_id}", json={"is_finished": True})
     assert response.status_code == 401
 
 
@@ -182,13 +182,13 @@ def test_patch_admin_doc_unknown_collection(client):
 
 
 def test_patch_admin_doc_not_found(client):
-    response = client.patch("/admin/events/nonexistent-doc-id", json={"venue_id": "x"}, cookies=admin_cookies())
+    response = client.patch("/admin/events/nonexistent-doc-id", json={"is_finished": True}, cookies=admin_cookies())
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
 
 
 def test_patch_admin_doc_empty_body_after_denylist_strip(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "strip_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     # Send only denylist fields — should result in 400 after stripping
     response = client.patch(
         f"/admin/events/{event_id}",
@@ -199,7 +199,7 @@ def test_patch_admin_doc_empty_body_after_denylist_strip(client, auth_token):
 
 
 def test_patch_admin_doc_non_allowlisted_field_rejected(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "allowlist_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     # event_id is not in the allowlist for events — should be filtered, leaving empty body → 400
     response = client.patch(
         f"/admin/events/{event_id}",
@@ -210,45 +210,45 @@ def test_patch_admin_doc_non_allowlisted_field_rejected(client, auth_token):
 
 
 def test_patch_admin_doc_mixed_strips_non_allowlisted(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "mixed_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
-    # venue_id is allowed; event_id is not — only venue_id should be applied
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
+    # is_finished is allowed; event_id is not — only is_finished should be applied
     response = client.patch(
         f"/admin/events/{event_id}",
-        json={"venue_id": "updated_venue", "event_id": "fake-id"},
+        json={"is_finished": True, "event_id": "fake-id"},
         cookies=admin_cookies(),
     )
     assert response.status_code == 200
     data = client.get(f"/event/{event_id}").json()
-    assert data["venue_id"] == "updated_venue"
+    assert data["is_finished"] is True
     assert data["event_id"] == event_id  # unchanged
 
 
 def test_patch_admin_doc_success(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "original_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.patch(
         f"/admin/events/{event_id}",
-        json={"venue_id": "patched_venue"},
+        json={"is_finished": True},
         cookies=admin_cookies(),
     )
     assert response.status_code == 200
     assert response.json()["updated"] == 1
     # Verify change persisted
-    assert client.get(f"/event/{event_id}").json()["venue_id"] == "patched_venue"
+    assert client.get(f"/event/{event_id}").json()["is_finished"] is True
 
 
 def test_patch_admin_doc_strips_id_field(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "id_strip_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     # event_id is the collection's id field — should be stripped, rest applied
     response = client.patch(
         f"/admin/events/{event_id}",
-        json={"event_id": "fake-id", "venue_id": "ok_venue"},
+        json={"event_id": "fake-id", "is_finished": True},
         cookies=admin_cookies(),
     )
     assert response.status_code == 200
     # event_id must remain unchanged
     data = client.get(f"/event/{event_id}").json()
     assert data["event_id"] == event_id
-    assert data["venue_id"] == "ok_venue"
+    assert data["is_finished"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ def test_patch_admin_doc_strips_id_field(client, auth_token):
 # ---------------------------------------------------------------------------
 
 def test_delete_admin_doc_unauthenticated(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "del_unauth_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.delete(f"/admin/events/{event_id}")
     assert response.status_code == 401
 
@@ -273,7 +273,7 @@ def test_delete_admin_doc_not_found(client):
 
 
 def test_delete_admin_doc_success(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "admin_del_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.delete(f"/admin/events/{event_id}", cookies=admin_cookies())
     assert response.status_code == 204
     assert client.get(f"/event/{event_id}").status_code == 404
@@ -284,7 +284,7 @@ def test_delete_admin_doc_success(client, auth_token):
 # ---------------------------------------------------------------------------
 
 def test_get_admin_detail_unauthenticated(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "detail_unauth"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.get(f"/admin/events/{event_id}", follow_redirects=False)
     assert response.status_code == 302
     assert "login" in response.headers["location"]
@@ -301,7 +301,7 @@ def test_get_admin_detail_not_found(client):
 
 
 def test_get_admin_detail_success(client, auth_token):
-    event_id = client.post("/event", json={"venue_id": "detail_venue"}, headers=auth_headers(auth_token)).json()["event_id"]
+    event_id = client.post("/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, headers=auth_headers(auth_token)).json()["event_id"]
     response = client.get(f"/admin/events/{event_id}", cookies=admin_cookies())
     assert response.status_code == 200
     assert event_id.encode() in response.content
@@ -414,7 +414,7 @@ def test_get_create_event_authenticated(client):
 def test_post_create_event_unauthenticated(client):
     response = client.post(
         "/admin/events/create",
-        data={"venue_id": "test_venue"},
+        data={"event_name": "Test Event", "players": "Alice, Bob"},
         follow_redirects=False,
     )
     assert response.status_code == 302
@@ -424,7 +424,7 @@ def test_post_create_event_unauthenticated(client):
 def test_post_create_event_success_redirects(client):
     response = client.post(
         "/admin/events/create",
-        data={"venue_id": "new_venue_1"},
+        data={"event_name": "Test Event", "players": "Alice, Bob"},
         cookies=admin_cookies(),
         follow_redirects=False,
     )
@@ -435,7 +435,7 @@ def test_post_create_event_success_redirects(client):
 def test_post_create_event_with_timestamp(client):
     response = client.post(
         "/admin/events/create",
-        data={"venue_id": "new_venue_2", "start_timestamp": "2026-06-01T10:00"},
+        data={"event_name": "Test Event", "players": "Alice, Bob", "start_timestamp": "2026-06-01T10:00"},
         cookies=admin_cookies(),
         follow_redirects=False,
     )
@@ -445,7 +445,7 @@ def test_post_create_event_with_timestamp(client):
 def test_post_create_event_invalid_timestamp(client):
     response = client.post(
         "/admin/events/create",
-        data={"venue_id": "new_venue_3", "start_timestamp": "not-a-date"},
+        data={"event_name": "Test Event", "players": "Alice, Bob", "start_timestamp": "not-a-date"},
         cookies=admin_cookies(),
     )
     assert response.status_code == 200
@@ -457,12 +457,12 @@ def test_post_create_event_invalid_timestamp(client):
 # ---------------------------------------------------------------------------
 
 def test_admin_create_event_json_unauthenticated(client):
-    response = client.post("/admin/create/event", json={"venue_id": "v1"})
+    response = client.post("/admin/create/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]})
     assert response.status_code == 401
 
 
 def test_admin_create_event_json_success(client):
-    response = client.post("/admin/create/event", json={"venue_id": "v1"}, cookies=admin_cookies())
+    response = client.post("/admin/create/event", json={"event_name": "Test Event", "players": ["Alice", "Bob"]}, cookies=admin_cookies())
     assert response.status_code == 200
     assert "event_id" in response.json()
 

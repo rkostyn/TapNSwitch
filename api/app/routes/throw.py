@@ -43,7 +43,7 @@ async def submit_throw(body: ThrowSubmit = Body(...), current_user: str = Depend
 
 
 @router.get("/search", response_model=list[Throw], dependencies=[Depends(rate_limit(60))])
-async def get_throws_by_criteria(throws_get: ThrowsGet = Body(...), mongo_client: MongoClient = Depends(get_mongo_client)):
+async def get_throws_by_criteria(throws_get: ThrowsGet = Depends(), mongo_client: MongoClient = Depends(get_mongo_client)):
     logger.info("Searching throws with criteria: %s", throws_get.model_dump(exclude_none=True))
     r = ThrowRepository(mongo_client)
     throws = await r.get_throws_by_criteria(throws_get)

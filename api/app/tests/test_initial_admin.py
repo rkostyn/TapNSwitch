@@ -16,7 +16,8 @@ async def test_ensure_initial_admin_skips_without_password():
         "INITIAL_ADMIN_USERNAME",
         "INITIAL_ADMIN_EMAIL",
     ]
-    with patch.dict(os.environ, {}, remove=removes):
+    env = {k: v for k, v in os.environ.items() if k not in removes}
+    with patch.dict(os.environ, env, clear=True):
         await ensure_initial_admin(mongo)
     users = mongo._get_or_create("axes", "users")
     assert users._docs == []

@@ -3,3 +3,196 @@
 #app {
   font-weight: normal;
 }
+
+/* === Design tokens === */
+:root {
+  --color-bg-elevated: #1e2028;
+  --color-bg-input: #0f1117;
+  --color-bg-secondary: #1e293b;
+  --color-bg-secondary-hover: #293548;
+
+  --color-purple: #a78bfa;
+  --color-purple-focus: #8b5cf6;
+  --color-purple-strong: #7c3aed;
+  --color-purple-strong-hover: #6d28d9;
+  --color-purple-edge: #4c1d95;
+  --color-purple-soft: #1e1b2e;
+
+  --color-muted: #94a3b8;
+  --color-error: #f87171;
+  --color-danger-edge: #7f1d1d;
+  --color-danger-soft: #1f0a0a;
+  --color-success: #34d399;
+  --color-success-edge: #065f46;
+  --color-success-soft: #022c22;
+
+  --color-border-input: #334155;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* === Modal === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.modal-title {
+  font-size: 1.2rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--color-purple);
+  margin: 0 0 8px;
+}
+
+.modal-header .modal-title { margin: 0; }
+
+.modal-label {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 6px;
+}
+
+.modal-input {
+  padding: 8px 12px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.modal-input:focus { border-color: var(--color-purple-focus); }
+.modal-input:disabled { opacity: 0.5; }
+
+.modal-error,
+.modal-warning {
+  font-size: 0.85rem;
+  color: var(--color-error);
+  margin: 4px 0 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* === Modal action buttons === */
+.modal-cancel {
+  padding: 8px 18px;
+  font-size: 0.95rem;
+  background: var(--color-bg-secondary);
+  color: var(--color-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.modal-cancel:hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
+
+.modal-submit {
+  padding: 8px 18px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  background: var(--color-purple-strong);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.modal-submit:hover:not(:disabled) { background: var(--color-purple-strong-hover); }
+
+.modal-submit:disabled,
+.modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === Auth / header pill buttons === */
+.auth-btn {
+  padding: 6px 16px;
+  font-size: 0.875rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.login-btn {
+  background: transparent;
+  color: var(--color-purple);
+  border: 1px solid var(--color-purple-edge);
+}
+.login-btn:hover { background: var(--color-purple-soft); }
+
+.register-btn {
+  background: var(--color-purple-strong);
+  color: #fff;
+}
+.register-btn:hover { background: var(--color-purple-strong-hover); }
+
+.logout-btn {
+  background: transparent;
+  color: var(--color-error);
+  border: 1px solid var(--color-danger-edge);
+}
+.logout-btn:hover { background: var(--color-danger-soft); }
+
+.events-btn {
+  background: transparent;
+  color: var(--color-success);
+  border: 1px solid var(--color-success-edge);
+}
+.events-btn:hover { background: var(--color-success-soft); }
+
+/* Outline pill (add-player and similar small actions) */
+.outline-pill-btn {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  background: transparent;
+  color: var(--color-purple);
+  border: 1px solid var(--color-purple-edge);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.outline-pill-btn:hover:not(:disabled) { background: var(--color-purple-soft); }
+.outline-pill-btn:disabled { opacity: 0.5; cursor: not-allowed; }

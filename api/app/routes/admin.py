@@ -127,7 +127,7 @@ _COLLECTION_ID_FIELD = {
 
 
 _PATCH_ALLOWLIST: dict[str, set[str]] = {
-    "events":  {"venue_id", "start_timestamp", "is_locked", "locked_by", "locked_at", "is_finished", "finished_at"},
+    "events":  {"event_name", "players", "start_timestamp", "is_locked", "locked_by", "locked_at", "is_finished", "finished_at"},
     "matches": {"event_id", "player_1_id", "player_2_id", "sequence", "is_locked", "locked_by", "locked_at", "is_finished", "finished_at"},
     "rounds":  {"match_id", "player_1_id", "player_2_id", "sequence", "is_locked", "locked_by", "locked_at"},
     "throws":  {"match_id", "round_id", "player_id", "event_id", "venue_id", "points", "clutch_called", "is_premier", "is_drop", "timestamp"},
@@ -201,12 +201,14 @@ async def get_create_event(request: Request, redis_client: RedisClient = Depends
 @router.post("/events/create")
 async def post_create_event(
     request: Request,
-    venue_id: str = Form(...),
+    event_name: str = Form(...),
+    players: str = Form(...),
     start_timestamp: str = Form(""),
     redis_client: RedisClient = Depends(get_redis_client),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
+    admin_user = await _get_admin_user(request, redis_client)
+    if not admin_user:
         return _LOGIN_REDIRECT
 
     ts = None
@@ -217,11 +219,12 @@ async def post_create_event(
             return templates.TemplateResponse(
                 request=request,
                 name="admin/create_event.html",
-                context={"error": "Invalid timestamp format", "venue_id": venue_id},
+                context={"error": "Invalid timestamp format"},
             )
 
+    player_list = [p.strip() for p in players.split(",") if p.strip()]
     repo = EventRepository(mongo_client)
-    await repo.create_event(EventCreate(venue_id=venue_id.strip(), start_timestamp=ts))
+    await repo.create_event(EventCreate(event_name=event_name.strip(), players=player_list, start_timestamp=ts), admin_user)
     return RedirectResponse(url="/admin/", status_code=302)
 
 
@@ -231,11 +234,12 @@ async def admin_create_event(
     redis_client: RedisClient = Depends(get_redis_client),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
+    admin_user = await _get_admin_user(request, redis_client)
+    if not admin_user:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     body = await request.json()
     repo = EventRepository(mongo_client)
-    event = await repo.create_event(EventCreate(**body))
+    event = await repo.create_event(EventCreate(**body), admin_user)
     return JSONResponse(status_code=200, content={"event_id": event.event_id})
 
 
