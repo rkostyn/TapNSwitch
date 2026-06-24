@@ -51,6 +51,8 @@ export interface ApiEvent {
   event_name: string
   players: string[]
   late_players: string[]
+  source?: 'manual' | 'checkfront'
+  checkfront_booking_code?: string | null
   swiss_matches_per_player: number
   swiss_rounds_per_match: number
   swiss_generated_at: string | null

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 
 
@@ -42,6 +42,11 @@ class Event(BaseModel):
     players: list[str] = []
     late_players: list[str] = []
     created_by: Optional[str] = None
+    source: Literal["manual", "checkfront"] = "manual"
+    checkfront_booking_id: Optional[str] = None
+    checkfront_booking_code: Optional[str] = None
+    checkfront_session_key: Optional[str] = None
+    checkfront_booking_ids: list[str] = []
     start_timestamp: Optional[datetime] = None
     timestamp: datetime
     swiss_matches_per_player: int = 2

@@ -73,6 +73,18 @@
   },
   {
     "db": "axes",
+    "collection": "events",
+    "keys": {"checkfront_booking_id": 1},
+    "unique": false
+  },
+  {
+    "db": "axes",
+    "collection": "events",
+    "keys": {"checkfront_session_key": 1},
+    "unique": false
+  },
+  {
+    "db": "axes",
     "collection": "players",
     "keys": {"player_id": 1},
     "unique": true
