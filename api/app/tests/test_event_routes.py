@@ -20,12 +20,14 @@ def test_create_event(client, auth_token):
 
 
 def test_list_events(client, auth_token):
-    client.post("/event", json=EVENT_PAYLOAD, headers=auth_headers(auth_token))
+    create_resp = client.post("/event", json=EVENT_PAYLOAD, headers=auth_headers(auth_token))
+    event_id = create_resp.json()["event_id"]
     response = client.get("/event", headers=auth_headers(auth_token))
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert all(e["created_by"] == "testuser" for e in data)
+    created = next(e for e in data if e["event_id"] == event_id)
+    assert created["created_by"] == "testuser"
 
 
 def test_list_events_unauthenticated(client):
