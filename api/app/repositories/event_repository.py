@@ -24,6 +24,7 @@ class EventRepository:
             "players": event_create.players,
             "late_players": [],
             "created_by": created_by,
+            "source": "manual",
             "start_timestamp": event_create.start_timestamp,
             "timestamp": datetime.now(UTC),
             "swiss_matches_per_player": event_create.swiss_matches_per_player,
@@ -42,6 +43,62 @@ class EventRepository:
         await collection.insert_one(doc)
         logger.info("Event created: %s", event_id)
         return Event(**doc)
+
+    async def create_checkfront_event(
+        self,
+        event_create: EventCreate,
+        *,
+        booking_id: str,
+        booking_code: str,
+        session_key: str | None,
+    ) -> Event:
+        collection = await self._collection()
+        event_id = str(uuid.uuid4())
+        doc = {
+            "event_id": event_id,
+            "event_name": event_create.event_name,
+            "players": event_create.players,
+            "late_players": [],
+            "created_by": "checkfront",
+            "source": "checkfront",
+            "checkfront_booking_id": booking_id,
+            "checkfront_booking_code": booking_code,
+            "checkfront_session_key": session_key,
+            "checkfront_booking_ids": [booking_id],
+            "start_timestamp": event_create.start_timestamp,
+            "timestamp": datetime.now(UTC),
+            "swiss_matches_per_player": event_create.swiss_matches_per_player,
+            "swiss_rounds_per_match": event_create.swiss_rounds_per_match,
+            "swiss_generated_at": None,
+            "swiss_standings": None,
+            "standings_generated_at": None,
+            "bracket_rounds_per_match": 3,
+            "bracket_generated_at": None,
+            "is_locked": False,
+            "locked_by": None,
+            "locked_at": None,
+            "is_finished": False,
+            "finished_at": None,
+        }
+        await collection.insert_one(doc)
+        logger.info("Checkfront event created: %s (booking %s)", event_id, booking_id)
+        return Event(**doc)
+
+    async def get_event_by_checkfront_booking_id(self, booking_id: str) -> Event | None:
+        collection = await self._collection()
+        doc = await collection.find_one({"checkfront_booking_id": booking_id}, {"_id": 0})
+        return Event(**doc) if doc else None
+
+    async def get_event_by_checkfront_session_key(self, session_key: str) -> Event | None:
+        collection = await self._collection()
+        cursor = collection.find(
+            {"checkfront_session_key": session_key, "is_finished": False},
+            {"_id": 0},
+        ).sort("timestamp", -1).limit(1)
+        docs = await cursor.to_list(length=1)
+        if not docs:
+            return None
+        return Event(**docs[0])
 
     async def get_event(self, event_id: str) -> Event | None:
         collection = await self._collection()
@@ -82,7 +139,10 @@ class EventRepository:
 
     async def get_events_by_user(self, user_id: str) -> list[Event]:
         collection = await self._collection()
-        cursor = collection.find({"created_by": user_id}, {"_id": 0}).sort("timestamp", -1)
+        cursor = collection.find(
+            {"$or": [{"created_by": user_id}, {"source": "checkfront"}]},
+            {"_id": 0},
+        ).sort("timestamp", -1)
         return [Event(**doc) async for doc in cursor]
 
     async def delete_event(self, event_id: str) -> bool:

@@ -117,9 +117,13 @@
               <li v-for="event in visibleEvents" :key="event.event_id" class="event-item" @click="openEvent(event)">
                 <span class="event-name">
                   {{ event.event_name }}
+                  <span v-if="event.source === 'checkfront'" class="checkfront-badge">Checkfront</span>
                   <span v-if="event.is_finished" class="closed-badge">Closed</span>
                 </span>
-                <span class="event-players">{{ event.players?.length ?? 0 }} players</span>
+                <span class="event-meta">
+                  <span v-if="event.checkfront_booking_code" class="event-code">{{ event.checkfront_booking_code }}</span>
+                  <span class="event-players">{{ event.players?.length ?? 0 }} players</span>
+                </span>
               </li>
             </ul>
             <button v-if="closedCount > 0" class="outline-pill-btn show-closed-btn" @click="showClosed = !showClosed">
@@ -214,6 +218,29 @@
   background: var(--color-bg-secondary);
   color: var(--color-muted);
   border-radius: 10px;
+}
+
+.checkfront-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  background: #1e293b;
+  color: #93c5fd;
+  border-radius: 10px;
+}
+
+.event-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.event-code {
+  font-size: 0.72rem;
+  color: #64748b;
 }
 
 .show-closed-btn {

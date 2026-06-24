@@ -53,3 +53,22 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     logger.info("Authenticated user: %s", subject)
     return subject
+
+
+async def verify_checkfront_webhook(request: Request) -> None:
+    import os
+
+    expected = (os.getenv("CHECKFRONT_WEBHOOK_SECRET") or "").strip()
+    if not expected:
+        logger.error("CHECKFRONT_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=503, detail="Checkfront integration is not configured")
+
+    provided = (request.headers.get("X-Checkfront-Webhook-Key") or "").strip()
+    if not provided:
+        auth = (request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            provided = auth[7:].strip()
+
+    if provided != expected:
+        logger.warning("Invalid Checkfront webhook key presented")
+        raise HTTPException(status_code=401, detail="Invalid webhook key")
