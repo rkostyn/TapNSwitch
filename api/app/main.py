@@ -50,7 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             db_name=index["db"],
             collection_name=index["collection"],
             keys=index["keys"],
-            unique=index.get("unique", False)
+            unique=index.get("unique", False),
+            expire_after_seconds=index.get("expireAfterSeconds")
         )
     await ensure_initial_admin(client)
     logger.info("Startup complete")

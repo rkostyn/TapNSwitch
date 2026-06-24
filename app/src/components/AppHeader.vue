@@ -2,7 +2,11 @@
   import { ref } from 'vue'
   import { login } from '../api'
   import { getCookie, setCookie, deleteCookie } from '../cookies'
+  import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
+
+  const clientId = getOrCreateClientId()
+  const shortClientId = clientId.slice(0, 8)
 
   const emit = defineEmits(['openConfig', 'selectMatch'])
 
@@ -70,6 +74,7 @@
     </div>
     <div class="header-right">
       <template v-if="loggedInUser">
+        <span class="client-id-chip" :title="`This device: ${clientId}`">{{ shortClientId }}</span>
         <span class="logged-in-user">{{ loggedInUser }}</span>
         <button class="auth-btn logout-btn" @click="logout">Log Out</button>
       </template>
@@ -159,6 +164,16 @@
 
 .config-btn:hover {
   background: var(--color-bg-secondary-hover);
+}
+
+.client-id-chip {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--color-muted);
+  padding: 6px 10px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  cursor: default;
 }
 
 .logged-in-user {

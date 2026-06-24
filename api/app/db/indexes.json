@@ -49,6 +49,30 @@
   },
   {
     "db": "axes",
+    "collection": "throws",
+    "keys": {"timestamp": 1},
+    "expireAfterSeconds": 31536000
+  },
+  {
+    "db": "axes",
+    "collection": "rounds",
+    "keys": {"timestamp": 1},
+    "expireAfterSeconds": 31536000
+  },
+  {
+    "db": "axes",
+    "collection": "matches",
+    "keys": {"timestamp": 1},
+    "expireAfterSeconds": 31536000
+  },
+  {
+    "db": "axes",
+    "collection": "events",
+    "keys": {"timestamp": 1},
+    "expireAfterSeconds": 31536000
+  },
+  {
+    "db": "axes",
     "collection": "players",
     "keys": {"player_id": 1},
     "unique": true

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { config } from './config'
 import { getCookie, setCookie } from './cookies'
+import { getOrCreateClientId } from './clientId'
 
 const http = axios.create({ baseURL: config.apiUrl })
 
@@ -20,6 +21,8 @@ async function refreshToken(token: string, tokenType: string): Promise<void> {
 }
 
 http.interceptors.request.use(async req => {
+  // Matches are locked per device, not per user
+  req.headers['X-Client-ID'] = getOrCreateClientId()
   let token = getCookie('access_token')
   const tokenType = getCookie('token_type') ?? 'Bearer'
   if (token) {
@@ -102,6 +105,11 @@ export async function getEvent(eventId: string): Promise<ApiEvent> {
 
 export async function createEvent(name: string, players: string[]): Promise<void> {
   await http.post('/event', { event_name: name, players })
+}
+
+export async function finishEvent(eventId: string): Promise<ApiEvent> {
+  const { data } = await http.post(`/event/${eventId}/finish`)
+  return data
 }
 
 export async function addPlayer(eventId: string, playerName: string): Promise<ApiEvent> {

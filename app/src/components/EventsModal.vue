@@ -1,5 +1,5 @@
 <script setup>
-  import { ref, onMounted } from 'vue'
+  import { ref, computed, onMounted } from 'vue'
   import { getEvents, createEvent } from '../api'
   import EventDetail from './EventDetail.vue'
 
@@ -24,6 +24,12 @@
   const events = ref([])
   const listLoading = ref(true)
   const listError = ref('')
+  const showClosed = ref(false)
+
+  const visibleEvents = computed(() =>
+    showClosed.value ? events.value : events.value.filter(e => !e.is_finished)
+  )
+  const closedCount = computed(() => events.value.filter(e => e.is_finished).length)
 
   async function loadEvents() {
     listLoading.value = true
@@ -103,13 +109,23 @@
 
           <div v-if="listLoading" class="state-msg">Loading…</div>
           <div v-else-if="listError" class="modal-error">{{ listError }}</div>
-          <div v-else-if="events.length === 0" class="state-msg">No events yet.</div>
-          <ul v-else class="event-list">
-            <li v-for="event in events" :key="event.event_id" class="event-item" @click="openEvent(event)">
-              <span class="event-name">{{ event.event_name }}</span>
-              <span class="event-players">{{ event.players?.length ?? 0 }} players</span>
-            </li>
-          </ul>
+          <template v-else>
+            <div v-if="visibleEvents.length === 0" class="state-msg">
+              {{ events.length === 0 ? 'No events yet.' : 'No open events.' }}
+            </div>
+            <ul v-else class="event-list">
+              <li v-for="event in visibleEvents" :key="event.event_id" class="event-item" @click="openEvent(event)">
+                <span class="event-name">
+                  {{ event.event_name }}
+                  <span v-if="event.is_finished" class="closed-badge">Closed</span>
+                </span>
+                <span class="event-players">{{ event.players?.length ?? 0 }} players</span>
+              </li>
+            </ul>
+            <button v-if="closedCount > 0" class="outline-pill-btn show-closed-btn" @click="showClosed = !showClosed">
+              {{ showClosed ? 'Hide closed events' : `Show ${closedCount} closed event${closedCount === 1 ? '' : 's'}` }}
+            </button>
+          </template>
 
           <div class="modal-actions">
             <button class="modal-cancel" @click="emit('close')">Close</button>
@@ -187,6 +203,23 @@
 .new-event-btn {
   padding: 6px 14px;
   font-size: 0.8rem;
+}
+
+.closed-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  background: var(--color-bg-secondary);
+  color: var(--color-muted);
+  border-radius: 10px;
+}
+
+.show-closed-btn {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: 4px 12px;
 }
 
 .add-player-btn {

@@ -1,0 +1,2 @@
+This app should be written with IPad's in mind.
+  - We also want to support desktop and phones just in case.

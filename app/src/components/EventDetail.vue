@@ -10,19 +10,29 @@
     generateBracket,
     getMatchesByEvent,
     lockMatch,
-    reopenMatch,
     updateMatchRounds,
+    finishEvent,
   } from '../api'
+  import { getOrCreateClientId } from '../clientId'
   import BracketView from './BracketView.vue'
 
   const props = defineProps(['eventId'])
   const emit = defineEmits(['back', 'selectMatch'])
+
+  const clientId = getOrCreateClientId()
 
   const event = ref(null)
   const matches = ref([])
   const loading = ref(true)
   const error = ref('')
   const busy = ref(false)
+
+  // 'swiss' | 'bracket' — bracket becomes the default once it exists
+  const activeTab = ref('swiss')
+
+  // Players collapse out of the way once the swiss stage is generated, but
+  // stay reachable so late arrivals can still be marked
+  const playersCollapsed = ref(false)
 
   const newPlayer = ref('')
   const configMatches = ref(2)
@@ -31,16 +41,34 @@
   const showBracketPrompt = ref(false)
   const bracketRounds = ref(3)
 
-  // Takeover state: a match someone else holds, awaiting override confirmation
+  // Takeover state: a match another device holds, awaiting override confirmation
   const takeover = ref(null) // { match, lockedBy }
-  // Reopen state: a finished match awaiting confirmation to edit
-  const reopenTarget = ref(null)
+  // Close-event confirmation
+  const closing = ref(false)
 
   const swissMatches = computed(() => matches.value.filter(m => m.match_type === 'swiss'))
+
+  // Upcoming matches first, late throwers' matches next, completed at the
+  // bottom — so whoever is up next is always at the top of the list
+  const sortedSwissMatches = computed(() => {
+    const late = new Set(event.value?.late_players ?? [])
+    const rank = m => m.is_finished ? 2 : (late.has(m.player_1_id) || late.has(m.player_2_id) ? 1 : 0)
+    return [...swissMatches.value].sort((a, b) => rank(a) - rank(b) || a.sequence - b.sequence)
+  })
+
+  const lateMatch = m => {
+    const late = new Set(event.value?.late_players ?? [])
+    return !m.is_finished && (late.has(m.player_1_id) || late.has(m.player_2_id))
+  }
   const bracketMatches = computed(() => matches.value.filter(m => m.match_type === 'bracket'))
   const swissGenerated = computed(() => !!event.value?.swiss_generated_at)
   const bracketGenerated = computed(() => !!event.value?.bracket_generated_at)
   const standings = computed(() => event.value?.swiss_standings ?? null)
+
+  function holderLabel(lockedBy) {
+    if (!lockedBy) return ''
+    return lockedBy === clientId ? 'this device' : `device ${lockedBy.slice(0, 8)}`
+  }
 
   async function load() {
     loading.value = true
@@ -50,6 +78,8 @@
       matches.value = await getMatchesByEvent(props.eventId)
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
+      if (bracketGenerated.value) activeTab.value = 'bracket'
+      playersCollapsed.value = swissGenerated.value
     } catch (e) {
       error.value = 'Failed to load event.'
     } finally {
@@ -139,20 +169,8 @@
       error.value = 'Both players must be decided before this match can start.'
       return
     }
-    if (match.is_finished) {
-      reopenTarget.value = match
-      return
-    }
+    // Finished matches open directly — scores stay editable after the fact
     await acquire(match, false)
-  }
-
-  async function confirmReopen() {
-    const match = reopenTarget.value
-    reopenTarget.value = null
-    await run(async () => {
-      await reopenMatch(match.match_id)
-      await acquire({ ...match, is_finished: false }, false)
-    }, 'Failed to reopen match.')
   }
 
   async function acquire(match, force) {
@@ -177,6 +195,14 @@
     takeover.value = null
     await acquire(match, true)
   }
+
+  async function confirmCloseEvent() {
+    closing.value = false
+    await run(async () => {
+      event.value = await finishEvent(props.eventId)
+      emit('back')
+    }, 'Failed to close the event.')
+  }
 </script>
 
 <template>
@@ -190,9 +216,21 @@
     <template v-else-if="event">
       <p v-if="error" class="modal-error">{{ error }}</p>
 
-      <!-- Players -->
+      <!-- Stage tabs once the bracket exists, so users can go back to swiss -->
+      <div v-if="bracketGenerated" class="stage-tabs">
+        <button class="stage-tab" :class="{ active: activeTab === 'swiss' }" @click="activeTab = 'swiss'">Swiss</button>
+        <button class="stage-tab" :class="{ active: activeTab === 'bracket' }" @click="activeTab = 'bracket'">Bracket</button>
+      </div>
+
+      <template v-if="!bracketGenerated || activeTab === 'swiss'">
+      <!-- Players (collapsed once the swiss stage is generated, but still
+           reachable so late arrivals can be marked) -->
       <section class="section">
-        <h3 class="section-title">Players</h3>
+        <button class="section-title section-toggle" @click="playersCollapsed = !playersCollapsed">
+          Players
+          <span class="toggle-indicator">{{ playersCollapsed ? '▸' : '▾' }}</span>
+        </button>
+        <template v-if="!playersCollapsed">
         <ul class="player-list">
           <li v-for="player in event.players" :key="player" class="player-item">
             <span class="player-name">
@@ -218,6 +256,7 @@
           />
           <button class="modal-submit" :disabled="busy || !newPlayer.trim()" @click="submitAddPlayer">Add</button>
         </div>
+        </template>
       </section>
 
       <!-- Swiss setup / matches -->
@@ -239,7 +278,7 @@
         <template v-else>
           <ul class="match-list">
             <li
-              v-for="match in swissMatches"
+              v-for="match in sortedSwissMatches"
               :key="match.match_id"
               class="match-item"
               :class="matchStatus(match)"
@@ -248,7 +287,8 @@
               <span class="match-name">{{ matchLabel(match) }}</span>
               <span class="match-status">
                 <template v-if="match.is_finished">{{ match.winner_id ? `Won: ${match.winner_id}` : 'Finished' }}</template>
-                <template v-else-if="match.is_locked">In use by {{ match.locked_by }}</template>
+                <template v-else-if="match.is_locked">In use by {{ holderLabel(match.locked_by) }}</template>
+                <template v-else-if="lateMatch(match)">Delayed — late thrower</template>
                 <template v-else>Open</template>
               </span>
             </li>
@@ -291,33 +331,41 @@
           </div>
         </template>
       </section>
+      </template>
 
       <!-- Bracket -->
-      <section class="section" v-if="bracketGenerated">
+      <section class="section" v-if="bracketGenerated && activeTab === 'bracket'">
         <h3 class="section-title">Tournament Bracket</h3>
         <BracketView :matches="bracketMatches" @select="selectMatch" @updateRounds="changeMatchRounds" />
       </section>
+
+      <button
+        v-if="!event.is_finished"
+        class="modal-cancel close-event-btn"
+        :disabled="busy"
+        @click="closing = true"
+      >Close Event</button>
     </template>
+
+    <!-- Close event confirmation -->
+    <div v-if="closing" class="confirm-box">
+      <p class="confirm-text">
+        Close <strong>{{ event?.event_name }}</strong>? Scores can no longer be changed and the event is hidden from the list.
+      </p>
+      <div class="modal-actions">
+        <button class="modal-cancel" @click="closing = false">Cancel</button>
+        <button class="modal-submit danger" @click="confirmCloseEvent">Close Event</button>
+      </div>
+    </div>
 
     <!-- Lock takeover notice -->
     <div v-if="takeover" class="confirm-box">
       <p class="confirm-text">
-        This match is already being scored by <strong>{{ takeover.lockedBy }}</strong>.
+        This match is already being scored on <strong>{{ holderLabel(takeover.lockedBy) }}</strong>.
       </p>
       <div class="modal-actions">
         <button class="modal-cancel" @click="takeover = null">Cancel</button>
         <button class="modal-submit danger" @click="confirmTakeover">Override &amp; Take Over</button>
-      </div>
-    </div>
-
-    <!-- Reopen finished match notice -->
-    <div v-if="reopenTarget" class="confirm-box">
-      <p class="confirm-text">
-        <strong>{{ matchLabel(reopenTarget) }}</strong> is finished. Reopen it to adjust scoring?
-      </p>
-      <div class="modal-actions">
-        <button class="modal-cancel" @click="reopenTarget = null">Cancel</button>
-        <button class="modal-submit" @click="confirmReopen">Reopen Match</button>
       </div>
     </div>
   </div>
@@ -341,6 +389,31 @@
   padding: 12px 0;
 }
 
+.stage-tabs {
+  display: flex;
+  border-bottom: 2px solid var(--color-bg-secondary);
+}
+
+.stage-tab {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.stage-tab.active {
+  color: var(--color-purple);
+  border-bottom-color: var(--color-purple);
+}
+
 .section {
   display: flex;
   flex-direction: column;
@@ -356,6 +429,25 @@
   color: var(--color-purple);
   border-bottom: 1px solid var(--color-bg-secondary);
   padding-bottom: 4px;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-bg-secondary);
+  padding: 0 0 4px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle-indicator {
+  font-size: 0.8rem;
+  color: var(--color-muted);
 }
 
 .player-list, .match-list {
@@ -494,5 +586,11 @@
 
 .modal-submit.danger {
   background: #b45309;
+}
+
+.close-event-btn {
+  align-self: flex-end;
+  font-size: 0.8rem;
+  padding: 6px 14px;
 }
 </style>

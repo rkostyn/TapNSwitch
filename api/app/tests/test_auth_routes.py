@@ -33,7 +33,7 @@ def test_login(client):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 86400
+    assert data["expires_in"] == 604800
 
 
 def test_refresh_token(client):
@@ -44,7 +44,7 @@ def test_refresh_token(client):
     response = client.post("/auth/refresh", headers={"Authorization": f"Bearer {old_token}"})
     assert response.status_code == 200
     data = response.json()
-    assert data["expires_in"] == 86400
+    assert data["expires_in"] == 604800
     new_token = data["access_token"]
     assert new_token != old_token
 

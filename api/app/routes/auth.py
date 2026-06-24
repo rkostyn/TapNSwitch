@@ -21,8 +21,8 @@ router = APIRouter(
     tags=["Auth"],
 )
 
-# Tokens are valid for one day; clients silently refresh once they pass 12 hours
-TOKEN_TTL_SECONDS = 86400
+# Tokens are valid for one week; clients silently refresh once they pass 12 hours
+TOKEN_TTL_SECONDS = 604800
 
 @router.post("/register", response_model=RegisterResponse, dependencies=[Depends(rate_limit(5, 60))])
 async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient = Depends(get_mongo_client)):

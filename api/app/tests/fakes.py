@@ -197,7 +197,7 @@ class FakeCollection:
                 docs = [_apply_projection(d, stage["$project"]) for d in docs]
         return FakeCursor(docs)
 
-    async def create_index(self, keys, unique=False):
+    async def create_index(self, keys, unique=False, expireAfterSeconds=None):
         pass
 
 
@@ -238,7 +238,8 @@ class FakeMongoClient:
         if key in self._collections:
             self._collections[key]._docs.clear()
 
-    async def create_index(self, db_name: str, collection_name: str, keys: list, unique: bool = False):
+    async def create_index(self, db_name: str, collection_name: str, keys: list, unique: bool = False,
+                           expire_after_seconds: int | None = None):
         pass
 
 

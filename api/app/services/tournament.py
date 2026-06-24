@@ -177,8 +177,10 @@ def build_bracket_matches(
 
 
 def compute_match_winner(player_1_id: str | None, player_2_id: str | None, throws) -> str | None:
-    """Winner of a match from its throws: most rounds won, then total points,
-    then highest single round. Returns None when fully tied or undecidable."""
+    """Winner of a match from its throws: whoever takes more rounds. Tied
+    rounds count for neither player, and equal rounds taken is a draw (None) —
+    draws are settled on the lanes with tie-breaker throws, which arrive here
+    as extra rounds."""
     players = [p for p in (player_1_id, player_2_id) if p]
     if len(players) == 1:
         return players[0]
@@ -191,25 +193,16 @@ def compute_match_winner(player_1_id: str | None, player_2_id: str | None, throw
         round_totals[t.player_id] = round_totals.get(t.player_id, 0) + t.points
 
     rounds_won = {p: 0 for p in players}
-    points = {p: 0 for p in players}
-    highest = {p: 0 for p in players}
     for totals in totals_by_round.values():
-        for p in players:
-            v = totals.get(p, 0)
-            points[p] += v
-            highest[p] = max(highest[p], v)
         v1, v2 = totals.get(players[0], 0), totals.get(players[1], 0)
         if v1 > v2:
             rounds_won[players[0]] += 1
         elif v2 > v1:
             rounds_won[players[1]] += 1
 
-    def score(p):
-        return (rounds_won[p], points[p], highest[p])
-
     p1, p2 = players
-    if score(p1) > score(p2):
+    if rounds_won[p1] > rounds_won[p2]:
         return p1
-    if score(p2) > score(p1):
+    if rounds_won[p2] > rounds_won[p1]:
         return p2
     return None

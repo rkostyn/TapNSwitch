@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from app.db.mongo import MongoClient
 from app.dependencies import get_mongo_client, get_current_user, rate_limit
 from app.repositories.match_repository import MatchRepository
@@ -7,6 +7,7 @@ from app.repositories.throw_repository import ThrowRepository
 from app.models.match import Match, MatchCreate, MatchRoundsUpdate
 from app.models.throw import ThrowsGet
 from app.services.tournament import compute_match_winner
+from app.services.match_results import update_match_winner
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -90,17 +91,8 @@ async def finish_match(
     result = await repo.finish_match(match_id)
     if not result:
         raise HTTPException(status_code=423, detail="Match is already finished")
-    result = await repo.set_winner(match_id, winner)
-
-    # Advance the winner into the next bracket round
-    if existing.match_type == "bracket" and existing.event_id and winner is not None and existing.bracket_round is not None:
-        next_match = await repo.get_bracket_match(
-            existing.event_id, existing.bracket_round + 1, existing.bracket_slot // 2
-        )
-        if next_match:
-            await repo.set_bracket_player(next_match.match_id, existing.bracket_slot % 2, winner)
-            logger.info("Advanced %s to bracket round %d", winner, existing.bracket_round + 1)
-    return result
+    await update_match_winner(mongo_client, existing)
+    return await repo.get_match(match_id)
 
 
 @router.post("/{match_id}/reopen", response_model=Match)
@@ -143,15 +135,21 @@ async def lock_match(
     force: bool = False,
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID", max_length=64),
 ):
+    # Matches are locked per device (client id) so two iPads sharing a coach
+    # login still conflict; username is the fallback for clients without an id.
+    holder = x_client_id or current_user
     repo = MatchRepository(mongo_client)
     existing = await repo.get_match(match_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Match not found")
+    if existing.is_locked and existing.locked_by == holder:
+        return existing
     if force:
-        logger.info("Force lock takeover on match %s by %s (was %s)", match_id, current_user, existing.locked_by)
-        return await repo.force_lock_match(match_id, current_user)
-    result = await repo.lock_match(match_id, current_user)
+        logger.info("Force lock takeover on match %s by %s (was %s)", match_id, holder, existing.locked_by)
+        return await repo.force_lock_match(match_id, holder)
+    result = await repo.lock_match(match_id, holder)
     if not result:
         logger.warning("Lock attempt on already-locked match %s", match_id)
         raise HTTPException(
@@ -166,13 +164,15 @@ async def unlock_match(
     match_id: str,
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
+    x_client_id: str | None = Header(default=None, alias="X-Client-ID", max_length=64),
 ):
+    holder = x_client_id or current_user
     repo = MatchRepository(mongo_client)
     existing = await repo.get_match(match_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Match not found")
-    result = await repo.unlock_match(match_id, current_user)
+    result = await repo.unlock_match(match_id, holder)
     if not result:
         logger.warning("Unlock attempt failed for match %s — not locked by caller", match_id)
-        raise HTTPException(status_code=403, detail="Match is locked by another user")
+        raise HTTPException(status_code=403, detail="Match is locked by another device")
     return result

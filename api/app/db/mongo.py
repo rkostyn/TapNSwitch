@@ -43,6 +43,10 @@ class MongoClient:
         db = await self.get_database(db_name)
         await db.drop_collection(collection_name)
 
-    async def create_index(self, db_name: str, collection_name: str, keys: list, unique: bool = False):
+    async def create_index(self, db_name: str, collection_name: str, keys: list, unique: bool = False,
+                           expire_after_seconds: int | None = None):
         collection = await self.get_collection(db_name, collection_name)
-        await collection.create_index(keys, unique=unique)
+        kwargs = {"unique": unique}
+        if expire_after_seconds is not None:
+            kwargs["expireAfterSeconds"] = expire_after_seconds
+        await collection.create_index(keys, **kwargs)

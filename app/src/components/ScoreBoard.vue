@@ -26,20 +26,40 @@
   const scores2 = ref(Array(THROWS).fill(null))
   const completedRounds = ref([])
   const selected = ref(null) // { player: 1|2, index: number }
-  const sidesSwapped = ref(false)
+
+  // A previously played round selected for review/editing; null = live round
+  const viewedRound = ref(null)
 
   // Event-match sync state
   const roundIdBySeq = ref({}) // round sequence -> round_id on the server
   const syncError = ref('')
   const finishing = ref(false)
 
-  // Which player name/scores are on the left vs right panel this round
+  const displayRound = computed(() => viewedRound.value ?? currentRound.value)
+  const displayScores1 = computed(() =>
+    viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores1 : scores1.value
+  )
+  const displayScores2 = computed(() =>
+    viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores2 : scores2.value
+  )
+
+  // Sides swap every round; derive from the round on display
+  const sidesSwapped = computed(() => (displayRound.value - 1) % 2 === 1)
+
+  // Which player name/scores are on the left vs right panel for the displayed round
   const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
   const rightName = computed(() => sidesSwapped.value ? props.player1Name : props.player2Name)
-  const leftScores = computed(() => sidesSwapped.value ? scores2 : scores1)
-  const rightScores = computed(() => sidesSwapped.value ? scores1 : scores2)
-  const applyScoreLeft = (value) => applyScore(sidesSwapped.value ? scores2 : scores1, sidesSwapped.value ? 2 : 1, value)
-  const applyScoreRight = (value) => applyScore(sidesSwapped.value ? scores1 : scores2, sidesSwapped.value ? 1 : 2, value)
+  const leftScores = computed(() => sidesSwapped.value ? displayScores2.value : displayScores1.value)
+  const rightScores = computed(() => sidesSwapped.value ? displayScores1.value : displayScores2.value)
+  const applyScoreLeft = (value) => routeScore(sidesSwapped.value ? 2 : 1, value)
+  const applyScoreRight = (value) => routeScore(sidesSwapped.value ? 1 : 2, value)
+
+  // The score panels do double duty: during a tie breaker they record the
+  // sudden-death throws; otherwise they score the round on display
+  function routeScore(player, value) {
+    if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, value)
+    else applyScore(player, value)
+  }
 
   const roundComplete = computed(() => scores1.value.every(s => s !== null) && scores2.value.every(s => s !== null))
 
@@ -50,6 +70,27 @@
   const player1ClutchAvailable = computed(() => throws1.value === THROWS - 1)
   const player2ClutchAvailable = computed(() => throws2.value === THROWS - 1)
   const gameOver = computed(() => roundComplete.value && currentRound.value === props.totalRounds)
+
+  // Alternating-throw rules only gate the live round; past rounds edit freely.
+  // During a tie breaker a side locks once its single throw is recorded.
+  const tbEntered = (player) => (player === 1 ? tiebreak.value?.s1 : tiebreak.value?.s2) !== null
+
+  function sideDisabled(player) {
+    if (viewedRound.value) return false
+    if (tiebreakActive.value) return tbEntered(player)
+    return player === 1 ? player1Disabled.value : player2Disabled.value
+  }
+
+  function sideClutchAvailable(player) {
+    if (viewedRound.value) return true
+    if (tiebreakActive.value) return tiebreak.value.phase === 'clutch'
+    return player === 1 ? player1ClutchAvailable.value : player2ClutchAvailable.value
+  }
+
+  const leftDisabled = computed(() => sideDisabled(sidesSwapped.value ? 2 : 1))
+  const rightDisabled = computed(() => sideDisabled(sidesSwapped.value ? 1 : 2))
+  const leftClutchAvailable = computed(() => sideClutchAvailable(sidesSwapped.value ? 2 : 1))
+  const rightClutchAvailable = computed(() => sideClutchAvailable(sidesSwapped.value ? 1 : 2))
 
   const sum = arr => arr.reduce((a, s) => a + (s ? s.value : 0), 0)
 
@@ -79,36 +120,106 @@
     return wins1 > wins2 ? props.player1Name : wins2 > wins1 ? props.player2Name : 'tie'
   })
 
-  function applyScore(scoresRef, player, value) {
+  // --- Tie breaker -----------------------------------------------------------
+  // Equal rounds taken is a draw; sudden death settles it. One throw per side
+  // at bulls; both sticking a bull goes up to clutch; three clutch rounds in a
+  // row with neither hitting drops back down to bulls.
+  const tiebreak = ref(null) // { phase, attempt, s1, s2, missedClutchRounds, winner }
+
+  const needsTiebreak = computed(() =>
+    gameOver.value && overallWinner.value === 'tie' && !props.matchContext?.isFinished
+  )
+
+  const tiebreakActive = computed(() => !!tiebreak.value && !tiebreak.value.winner)
+
+  // A tied game cannot be finished until the tie breaker settles it
+  const tieUnresolved = computed(() =>
+    gameOver.value && overallWinner.value === 'tie' && !tiebreak.value?.winner
+  )
+
+  function tiebreakSeq() {
+    return props.totalRounds + tiebreak.value.attempt
+  }
+
+  function startTiebreak() {
+    tiebreak.value = { phase: 'bull', attempt: 1, s1: null, s2: null, missedClutchRounds: 0, winner: null }
+    ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
+  }
+
+  function tiebreakScore(player, value) {
+    const tb = tiebreak.value
+    if (!tb || tb.winner) return
+    if ((player === 1 ? tb.s1 : tb.s2) !== null) return
+    const drop = value === 'Drop'
+    const entry = { value: drop ? 0 : parseInt(value), drop }
+    if (player === 1) tb.s1 = entry
+    else tb.s2 = entry
+    syncEntry(entry, player, null, tiebreakSeq())
+    if (tb.s1 !== null && tb.s2 !== null) resolveTiebreakAttempt()
+  }
+
+  function resolveTiebreakAttempt() {
+    const tb = tiebreak.value
+    const v1 = tb.s1.value, v2 = tb.s2.value
+    if (v1 !== v2) {
+      tb.winner = v1 > v2 ? props.player1Name : props.player2Name
+      return
+    }
+    if (tb.phase === 'bull') {
+      // Both stuck their bulls — they may go up for clutch
+      if (v1 === 5) tb.phase = 'clutch'
+    } else if (v1 === 7) {
+      // Both hit clutch — stay up for clutch
+      tb.missedClutchRounds = 0
+    } else {
+      tb.missedClutchRounds++
+      if (tb.missedClutchRounds >= 3) {
+        tb.phase = 'bull'
+        tb.missedClutchRounds = 0
+      }
+    }
+    tb.attempt++
+    tb.s1 = null
+    tb.s2 = null
+    ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
+  }
+
+  function applyScore(player, value) {
     const entry = value === 'Drop'
       ? { value: 0, drop: true }
       : (() => { const num = parseInt(value); return isNaN(num) ? null : { value: num, drop: false } })()
     if (!entry) return
 
+    const arr = player === 1 ? displayScores1.value : displayScores2.value
     let oldEntry = null
     if (selected.value?.player === player) {
-      oldEntry = scoresRef.value[selected.value.index]
-      scoresRef.value[selected.value.index] = entry
+      oldEntry = arr[selected.value.index]
+      arr[selected.value.index] = entry
       selected.value = null
     } else {
-      const idx = scoresRef.value.indexOf(null)
+      const idx = arr.indexOf(null)
       if (idx === -1) return
-      scoresRef.value[idx] = entry
+      arr[idx] = entry
     }
-    syncEntry(entry, player, oldEntry)
+    syncEntry(entry, player, oldEntry, displayRound.value)
   }
 
   // Persist a placed/edited score to the API when scoring an event match
-  async function syncEntry(entry, player, oldEntry) {
+  async function syncEntry(entry, player, oldEntry, roundSeq) {
     const ctx = props.matchContext
     if (!ctx) return
     try {
       syncError.value = ''
       if (oldEntry?.throwId) await deleteThrow(oldEntry.throwId)
-      await ensureRound(currentRound.value)
+      await ensureRound(roundSeq)
+      const roundId = roundIdBySeq.value[roundSeq]
+      if (!roundId) {
+        syncError.value = 'This round does not exist on the server.'
+        return
+      }
       entry.throwId = await submitThrow({
         playerId: player === 1 ? ctx.player1Id : ctx.player2Id,
-        roundId: roundIdBySeq.value[currentRound.value],
+        roundId,
         matchId: matchId.value,
         eventId: ctx.eventId,
         points: entry.value,
@@ -123,17 +234,16 @@
   async function ensureRound(seq) {
     const ctx = props.matchContext
     if (!ctx || roundIdBySeq.value[seq]) return
+    // Finished matches can't grow new rounds — only existing ones are editable
+    if (ctx.isFinished) return
     const round = await apiStartRound(matchId.value, ctx.player1Id, ctx.player2Id, seq)
     roundIdBySeq.value = { ...roundIdBySeq.value, [seq]: round.round_id }
   }
 
-  const applyScore1 = (value) => applyScore(scores1, 1, value)
-  const applyScore2 = (value) => applyScore(scores2, 2, value)
-
   function resetScore(player, index) {
-    const scores = player === 1 ? scores1 : scores2
-    const old = scores.value[index]
-    scores.value[index] = null
+    const arr = player === 1 ? displayScores1.value : displayScores2.value
+    const old = arr[index]
+    arr[index] = null
     if (props.matchContext && old?.throwId) {
       deleteThrow(old.throwId).catch(() => { syncError.value = 'Score was not removed on the server.' })
     }
@@ -145,8 +255,15 @@
     scores1.value = Array(THROWS).fill(null)
     scores2.value = Array(THROWS).fill(null)
     selected.value = null
-    sidesSwapped.value = !sidesSwapped.value
+    viewedRound.value = null
     ensureRound(currentRound.value).catch(() => { syncError.value = 'Could not start the round on the server.' })
+  }
+
+  // Click a round in the results table to review/edit it, even after the match ended
+  function viewRound(roundNum) {
+    if (roundNum > currentRound.value) return
+    selected.value = null
+    viewedRound.value = roundNum === currentRound.value ? null : roundNum
   }
 
   function clearLocalState() {
@@ -155,9 +272,10 @@
     scores2.value = Array(THROWS).fill(null)
     completedRounds.value = []
     selected.value = null
-    sidesSwapped.value = false
+    viewedRound.value = null
     roundIdBySeq.value = {}
     syncError.value = ''
+    tiebreak.value = null
   }
 
   function resetGame() {
@@ -230,12 +348,19 @@
     currentRound.value = cur
     scores1.value = curScores ? curScores.arr1 : Array(THROWS).fill(null)
     scores2.value = curScores ? curScores.arr2 : Array(THROWS).fill(null)
-    sidesSwapped.value = (cur - 1) % 2 === 1
   }
 
   watch(() => props.matchContext, () => { resetGame() }, { immediate: true })
 
+  // Leave a finished match after editing its scores — the API recomputes the
+  // winner on every edit, so there is nothing to re-finish.
+  async function backToEvent() {
+    try { await unlockMatch(matchId.value) } catch (e) { /* lock may already be released */ }
+    emit('matchDone')
+  }
+
   async function finishEventMatch() {
+    if (tieUnresolved.value) return
     finishing.value = true
     syncError.value = ''
     try {
@@ -277,7 +402,10 @@
   <div class="scoreboard-root">
     <div class="round-bar">
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
-      <span class="round-label">Round {{ currentRound }} of {{ totalRounds }}</span>
+      <span class="round-label">Round {{ displayRound }} of {{ totalRounds }}</span>
+      <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
+        Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
+      </button>
       <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
 
@@ -289,7 +417,7 @@
 
     <div class="app-layout">
       <div class="tab-panel panel-p1" :class="{ active: activeTab === 'p1' }">
-        <UrbanScore :playerName="leftName" :disabled="sidesSwapped ? player2Disabled : player1Disabled" :clutchAvailable="sidesSwapped ? player2ClutchAvailable : player1ClutchAvailable" @score="applyScoreLeft" />
+        <UrbanScore :playerName="leftName" :disabled="leftDisabled" :clutchAvailable="leftClutchAvailable" @score="applyScoreLeft" />
       </div>
 
       <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }">
@@ -303,11 +431,11 @@
 
           <template v-for="i in THROWS" :key="i">
             <!-- Left player cell -->
-            <div class="score-cell" :class="{ filled: leftScores.value[i-1] !== null }">
-              <template v-if="leftScores.value[i-1] !== null">
+            <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }">
+              <template v-if="leftScores[i-1] !== null">
                 <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
                   @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
-                  {{ leftScores.value[i-1].value }}<sup v-if="leftScores.value[i-1].drop" class="drop-marker">d</sup>
+                  {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
                 </button>
                 <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
               </template>
@@ -317,11 +445,11 @@
             <div class="round-num">{{ i }}</div>
 
             <!-- Right player cell -->
-            <div class="score-cell" :class="{ filled: rightScores.value[i-1] !== null }">
-              <template v-if="rightScores.value[i-1] !== null">
+            <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }">
+              <template v-if="rightScores[i-1] !== null">
                 <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
                   @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
-                  {{ rightScores.value[i-1].value }}<sup v-if="rightScores.value[i-1].drop" class="drop-marker">d</sup>
+                  {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
                 </button>
                 <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
               </template>
@@ -329,21 +457,24 @@
             </div>
           </template>
 
-          <div class="total-cell">{{ total(leftScores.value) }}</div>
+          <div class="total-cell">{{ total(leftScores) }}</div>
           <div class="total-label">Total</div>
-          <div class="total-cell">{{ total(rightScores.value) }}</div>
+          <div class="total-cell">{{ total(rightScores) }}</div>
         </div>
       </div>
       </div>
 
       <div class="tab-panel panel-p2" :class="{ active: activeTab === 'p2' }">
-        <UrbanScore :playerName="rightName" :mirrored="true" :disabled="sidesSwapped ? player1Disabled : player2Disabled" :clutchAvailable="sidesSwapped ? player1ClutchAvailable : player2ClutchAvailable" @score="applyScoreRight" />
+        <UrbanScore :playerName="rightName" :mirrored="true" :disabled="rightDisabled" :clutchAvailable="rightClutchAvailable" @score="applyScoreRight" />
       </div>
     </div>
 
     <div class="results-section">
-      <button v-if="gameOver && matchContext" class="next-round-btn" :disabled="finishing" @click="finishEventMatch">
-        {{ finishing ? 'Finishing…' : 'Finish Match' }}
+      <button v-if="matchContext?.isFinished" class="new-game-btn" @click="backToEvent">
+        Done Editing — Back to Event
+      </button>
+      <button v-else-if="gameOver && matchContext" class="next-round-btn" :disabled="finishing || tieUnresolved" @click="finishEventMatch">
+        {{ finishing ? 'Finishing…' : tieUnresolved ? 'Drawn — settle the tie breaker first' : 'Finish Match' }}
       </button>
       <button v-else-if="gameOver" class="new-game-btn" @click="emit('requestConfig')">New Game</button>
       <button v-else-if="roundComplete" class="next-round-btn" @click="nextRound">
@@ -365,7 +496,12 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in allRoundRows" :key="r.round">
+          <tr
+            v-for="r in allRoundRows"
+            :key="r.round"
+            :class="{ selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
+            @click="viewRound(r.round)"
+          >
             <td>{{ r.round }}</td>
             <td :class="{ winner: r.status === 'p1' }">{{ r.t1 !== null ? r.t1 : '–' }}</td>
             <td :class="{ winner: r.status === 'p2' }">{{ r.t2 !== null ? r.t2 : '–' }}</td>
@@ -380,9 +516,35 @@
         </tbody>
       </table>
 
-      <div v-if="gameOver" class="overall-winner">
-        <span v-if="overallWinner === 'tie'">It's a tie!</span>
+      <div v-if="gameOver && !tiebreak" class="overall-winner" :class="{ draw: overallWinner === 'tie' }">
+        <span v-if="overallWinner === 'tie'">It's a draw!</span>
         <span v-else>{{ overallWinner }} wins the game!</span>
+      </div>
+
+      <button v-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
+        Start Tie Breaker
+      </button>
+
+      <div v-if="tiebreak" class="tiebreak-box">
+        <template v-if="!tiebreak.winner">
+          <h3 class="results-title">
+            Tie Breaker — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }} · Throw {{ tiebreak.attempt }}
+          </h3>
+          <p class="tiebreak-hint">
+            <template v-if="tiebreak.phase === 'bull'">One throw each, scored with the regular buttons. If both stick a bull (5), they go up for clutch.</template>
+            <template v-else>One throw each — call clutch on the regular buttons. Three misses in a row sends it back down to bulls.</template>
+          </p>
+          <div class="tiebreak-grid">
+            <div class="tiebreak-side" v-for="player in [1, 2]" :key="player">
+              <span class="tiebreak-name">{{ player === 1 ? player1Name : player2Name }}</span>
+              <span v-if="(player === 1 ? tiebreak.s1 : tiebreak.s2) !== null" class="tiebreak-score">
+                {{ (player === 1 ? tiebreak.s1 : tiebreak.s2).value }}<sup v-if="(player === 1 ? tiebreak.s1 : tiebreak.s2).drop" class="drop-marker">d</sup>
+              </span>
+              <span v-else class="tiebreak-waiting">waiting…</span>
+            </div>
+          </div>
+        </template>
+        <div v-else class="overall-winner">{{ tiebreak.winner }} wins the tie breaker!</div>
       </div>
     </div>
   </div>
@@ -424,6 +586,29 @@
   background: #3b1212;
   padding: 4px 12px;
   border-radius: 8px;
+}
+
+.editing-banner {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #fbbf24;
+  background: #3b2800;
+  border: 1px solid #eab308;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.results-table tr.selectable {
+  cursor: pointer;
+}
+
+.results-table tr.selectable:hover td {
+  background: #1e293b;
+}
+
+.results-table tr.viewing td {
+  background: #3b2800;
 }
 
 .app-layout {
@@ -470,7 +655,9 @@
   width: 500px;
 }
 
-@media (max-width: 767px) {
+/* iPads are the primary target: portrait iPads (and phones) get the tabbed
+   layout; landscape iPads and desktops get the three-column layout. */
+@media (max-width: 1023px) {
   .tab-bar {
     display: flex;
     border-bottom: 2px solid #334155;
@@ -732,6 +919,68 @@
   border: 3px solid #059669;
   border-radius: 12px;
   background: #022c22;
+}
+
+.overall-winner.draw {
+  color: #fbbf24;
+  border-color: #b45309;
+  background: #3b2800;
+}
+
+.tiebreak-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 2px solid #eab308;
+  border-radius: 12px;
+  background: #1c1503;
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+}
+
+.tiebreak-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #fbbf24;
+  text-align: center;
+}
+
+.tiebreak-grid {
+  display: flex;
+  gap: 24px;
+  width: 100%;
+  justify-content: center;
+}
+
+.tiebreak-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.tiebreak-name {
+  font-weight: bold;
+  color: #e2e8f0;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 1px;
+}
+
+.tiebreak-score {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #34d399;
+}
+
+.tiebreak-waiting {
+  font-size: 1rem;
+  color: #64748b;
+  font-style: italic;
 }
 
 .new-game-btn {

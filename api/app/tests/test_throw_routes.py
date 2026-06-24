@@ -50,12 +50,49 @@ def test_submit_throw_match_not_found(client, auth_token):
     assert response.status_code == 404
 
 
-def test_submit_throw_to_finished_match(client, auth_token):
+def test_submit_throw_to_finished_match_allowed(client, auth_token):
+    # Coaches can adjust scoring after a match is finished
     _, match_id = make_match(client, auth_token)
     round_id = make_round(client, auth_token, match_id)
     client.post(f"/match/{match_id}/finish", headers=auth_headers(auth_token))
     response = client.post("/throw/submit", json=make_throw_payload(match_id, round_id), headers=auth_headers(auth_token))
-    assert response.status_code == 423
+    assert response.status_code == 200
+
+
+def test_finished_match_winner_recomputed_on_edit(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    submit = lambda player, points: client.post(
+        "/throw/submit",
+        json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
+        headers=auth_headers(auth_token),
+    )
+    submit("player_1", 5)
+    submit("player_2", 1)
+    client.post(f"/match/{match_id}/finish", headers=auth_headers(auth_token))
+    assert client.get(f"/match/{match_id}").json()["winner_id"] == "player_1"
+
+    # A post-finish correction flips the round — winner updates automatically
+    submit("player_2", 7)
+    assert client.get(f"/match/{match_id}").json()["winner_id"] == "player_2"
+
+
+def test_delete_throw_recomputes_finished_winner(client, auth_token):
+    _, match_id = make_match(client, auth_token)
+    round_id = make_round(client, auth_token, match_id)
+    submit = lambda player, points: client.post(
+        "/throw/submit",
+        json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
+        headers=auth_headers(auth_token),
+    )
+    winning_throw = submit("player_1", 5).json()["throw_id"]
+    submit("player_1", 3)
+    submit("player_2", 4)
+    client.post(f"/match/{match_id}/finish", headers=auth_headers(auth_token))
+    assert client.get(f"/match/{match_id}").json()["winner_id"] == "player_1"
+
+    client.delete(f"/throw/{winning_throw}", headers=auth_headers(auth_token))
+    assert client.get(f"/match/{match_id}").json()["winner_id"] == "player_2"
 
 
 def test_submit_throw_to_locked_match_by_owner(client, auth_token):

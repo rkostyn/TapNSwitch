@@ -78,12 +78,13 @@ def test_lock_match(client, auth_token):
     assert data["locked_at"] is not None
 
 
-def test_lock_match_already_locked(client, auth_token):
+def test_lock_match_already_locked_by_self_is_idempotent(client, auth_token):
     event_id = make_event(client, auth_token)
     match_id = client.post("/match", json={**MATCH_PAYLOAD, "event_id": event_id}, headers=auth_headers(auth_token)).json()["match_id"]
     client.post(f"/match/{match_id}/lock", headers=auth_headers(auth_token))
     response = client.post(f"/match/{match_id}/lock", headers=auth_headers(auth_token))
-    assert response.status_code == 423
+    assert response.status_code == 200
+    assert response.json()["locked_by"] == "testuser"
 
 
 def test_unlock_match(client, auth_token):
@@ -289,3 +290,69 @@ def test_reopen_unfinished_match_conflicts(client, auth_token):
 def test_reopen_match_not_found(client, auth_token):
     response = client.post("/match/nonexistent/reopen", headers=auth_headers(auth_token))
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Client-id based locking
+# ---------------------------------------------------------------------------
+
+def test_lock_match_by_client_id(client, auth_token):
+    match = make_match(client, auth_token)
+    headers = {**auth_headers(auth_token), "X-Client-ID": "ipad-one"}
+    response = client.post(f"/match/{match['match_id']}/lock", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["locked_by"] == "ipad-one"
+
+
+def test_lock_conflict_between_devices_same_user(client, auth_token):
+    # Two iPads sharing one coach login still conflict with each other
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/lock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    response = client.post(f"/match/{match['match_id']}/lock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-two"})
+    assert response.status_code == 423
+    assert response.json()["detail"]["locked_by"] == "ipad-one"
+
+
+def test_relock_same_device_is_idempotent(client, auth_token):
+    match = make_match(client, auth_token)
+    headers = {**auth_headers(auth_token), "X-Client-ID": "ipad-one"}
+    client.post(f"/match/{match['match_id']}/lock", headers=headers)
+    response = client.post(f"/match/{match['match_id']}/lock", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["locked_by"] == "ipad-one"
+
+
+def test_force_lock_takeover_by_other_device(client, auth_token):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/lock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    response = client.post(
+        f"/match/{match['match_id']}/lock?force=true",
+        headers={**auth_headers(auth_token), "X-Client-ID": "ipad-two"},
+    )
+    assert response.status_code == 200
+    assert response.json()["locked_by"] == "ipad-two"
+
+
+def test_unlock_requires_same_device(client, auth_token):
+    match = make_match(client, auth_token)
+    client.post(f"/match/{match['match_id']}/lock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    response = client.post(f"/match/{match['match_id']}/unlock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-two"})
+    assert response.status_code == 403
+    response = client.post(f"/match/{match['match_id']}/unlock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    assert response.status_code == 200
+
+
+def test_throw_blocked_when_other_device_holds_lock(client, auth_token):
+    match = make_match(client, auth_token)
+    match_id = match["match_id"]
+    round_id = client.post(
+        "/round",
+        json={"match_id": match_id, "player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1},
+        headers=auth_headers(auth_token),
+    ).json()["round_id"]
+    client.post(f"/match/{match_id}/lock", headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    payload = {"player_id": "player_1", "round_id": round_id, "match_id": match_id, "points": 3}
+    blocked = client.post("/throw/submit", json=payload, headers={**auth_headers(auth_token), "X-Client-ID": "ipad-two"})
+    assert blocked.status_code == 423
+    allowed = client.post("/throw/submit", json=payload, headers={**auth_headers(auth_token), "X-Client-ID": "ipad-one"})
+    assert allowed.status_code == 200

@@ -3,6 +3,8 @@ As a user I want to mark throwers as “late”, delaying the games until later.
 As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:
   - Ability to control how many rounds and how many matches for the group
   - Default should be 2 matches of 2 rounds per thrower
+  - When a match is completed, move it to the bottom of the list, making it easier to know who is up next.
+  - If player is late, shuffle their matches to the bottom but before the completed matches.
   - Ability to go back to previously played matches and rounds within those matches to adjust scoring
   - Users have a manual button to generate final swiss scores to allow the coach to go back and edit, if needed
   - Following the end of the swiss round, a screen should show all throwers with their scores, sorted by highest points. 
@@ -12,7 +14,14 @@ As a user I want to Automatically building a swiss/round robin bracket for the t
   - A manual button to generate the single elimination tournament bracket
   - Ability to edit the number of rounds in the tournament matches at the start…I’d recommend immediately after clicking to start the bracket. The default should be 3 rounds per match.
   - Ability to modify the number of rounds from 3 to 1…this will help if the coach is running low on time during the tournament. 
+When the swiss stage is generated, collapse the player section.
 Show a visual bracket after a swiss style tournament of the tournament…coaches will select matches from that visual bracket
+  - This introduce a new tab, defaulting to the bracket. This gives users the ability to go back if needed.
+  - If the bracket doesn't fill completely, because there isn't a perfect amount of players, the ones with the best standings get "by" matches, winning their first round.
 If a match selected is already selected by a different coach/ipad, a notice should be provided with the option to override and take that match over
+  - A match is locked by client_id not user in this case.
+    - Any match in progress is assumed to be locked.  There is no need to tell what client_id has the lock. 
+    - It is helpful to know if the device you are on has the lock.  ( I just don't need to know the UUID ).
 If a user is playing an event match, when the match is complete show the events page instead of a new match.
-
+As a user, I have a button to close an event. 
+As a user, by default I don't see closed events.

@@ -42,6 +42,7 @@
       player1Id: match.player_1_id,
       player2Id: match.player_2_id,
       eventName: event?.event_name ?? '',
+      isFinished: match.is_finished,
     }
     showConfig.value = false
   }

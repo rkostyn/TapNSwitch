@@ -148,13 +148,24 @@ def test_match_winner_tie_returns_none():
     assert compute_match_winner("A", "B", throws) is None
 
 
-def test_match_winner_points_tiebreak():
-    # 1 round each, but B scored more total points
+def test_match_winner_equal_rounds_is_draw():
+    # 1 round each is a draw regardless of total points — ties are settled
+    # with tie-breaker throws, not point counts
     throws = [
         throw("A", "r1", 5), throw("B", "r1", 0),
         throw("A", "r2", 0), throw("B", "r2", 7),
     ]
-    assert compute_match_winner("A", "B", throws) == "B"
+    assert compute_match_winner("A", "B", throws) is None
+
+
+def test_match_winner_tiebreaker_round_settles_draw():
+    # Equal rounds, then a single-throw tie-breaker round decides it
+    throws = [
+        throw("A", "r1", 5), throw("B", "r1", 0),
+        throw("A", "r2", 0), throw("B", "r2", 7),
+        throw("A", "tb1", 5), throw("B", "tb1", 3),
+    ]
+    assert compute_match_winner("A", "B", throws) == "A"
 
 
 def test_match_winner_single_player_bye():
