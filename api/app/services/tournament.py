@@ -6,6 +6,12 @@ from app.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Stand-in opponent for an odd player out. A ghost match is thrown solo: the
+# real player throws as normal and the ghost scores 0 on every throw, so the
+# real player always wins it. Kept distinct from a real player name so it can
+# never collide with one.
+GHOST_PLAYER_ID = "__ghost__"
+
 
 def _round_robin_rounds(players: list[str]) -> list[list[tuple[str, str]]]:
     """Circle-method round robin. Returns a list of rounds, each a list of pairs."""
@@ -33,7 +39,9 @@ def build_swiss_pairings(
     """Build an ordered swiss schedule where each player gets matches_per_player
     matches. Pairs involving late players are pushed to the end of the schedule
     so their games start later. Rematches occur only when the pool is too small
-    to avoid them.
+    to avoid them. Any player who can't be paired (the odd one out when
+    players * matches_per_player is odd) gets a ghost match so everyone still
+    reaches matches_per_player.
     """
     if len(players) < 2:
         return []
@@ -52,7 +60,61 @@ def build_swiss_pairings(
             break
     late = set(late_players)
     pairings.sort(key=lambda pair: pair[0] in late or pair[1] in late)
+    # Whoever is still short has no real opponent left — fill with ghost matches,
+    # scheduled last so the contested games come first.
+    for player in players:
+        for _ in range(max(needed[player], 0)):
+            pairings.append((player, GHOST_PLAYER_ID))
     return pairings
+
+
+def build_late_entry_pairings(
+    players: list[str],
+    new_players: list[str],
+    late_players: list[str],
+    matches_per_player: int,
+    existing_pairs: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Schedule matches for players added after the swiss stage started, without
+    touching the matches already played. Each new player gets matches_per_player
+    games against the existing field (lightest-loaded, non-repeat opponents
+    first); when no fresh opponent is left they get a ghost match.
+    """
+    load = {p: 0 for p in players}
+    played: set[frozenset] = set()
+    for a, b in existing_pairs:
+        if a in load:
+            load[a] += 1
+        if b in load:
+            load[b] += 1
+        played.add(frozenset((a, b)))
+
+    needed = {p: matches_per_player for p in new_players}
+    new_pairs: list[tuple[str, str]] = []
+    for entrant in new_players:
+        while needed[entrant] > 0:
+            candidates = [
+                p for p in players
+                if p != entrant and frozenset((entrant, p)) not in played
+            ]
+            if not candidates:
+                new_pairs.append((entrant, GHOST_PLAYER_ID))
+                needed[entrant] -= 1
+                continue
+            # Prefer opponents who also still need games, then the lightest load.
+            candidates.sort(key=lambda p: (needed.get(p, 0) <= 0, load[p], p))
+            opponent = candidates[0]
+            new_pairs.append((entrant, opponent))
+            played.add(frozenset((entrant, opponent)))
+            load[entrant] += 1
+            load[opponent] += 1
+            needed[entrant] -= 1
+            if opponent in needed:
+                needed[opponent] -= 1
+
+    late = set(late_players)
+    new_pairs.sort(key=lambda pair: pair[0] in late or pair[1] in late)
+    return new_pairs
 
 
 def compute_swiss_standings(players: list[str], swiss_match_ids: set[str], throws) -> list[dict]:

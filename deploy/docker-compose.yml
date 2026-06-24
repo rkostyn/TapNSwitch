@@ -47,7 +47,7 @@ services:
 
   frontend:
     build:
-      context: ..
+      context: ../app
     restart: unless-stopped
     depends_on:
       - api

@@ -1,6 +1,7 @@
 <script setup>
   import { ref, computed, watch } from 'vue'
   import UrbanScore from './UrbanScore.vue'
+  import { GHOST_PLAYER_ID } from '../config'
   import {
     startRound as apiStartRound,
     submitThrow,
@@ -61,6 +62,14 @@
     else applyScore(player, value)
   }
 
+  // Solo (ghost) match: one side is the ghost, which scores 0 on every throw.
+  // It is filled automatically whenever the real player throws, never by hand.
+  const ghostSide = computed(() =>
+    props.matchContext?.player1Id === GHOST_PLAYER_ID ? 1
+    : props.matchContext?.player2Id === GHOST_PLAYER_ID ? 2
+    : null
+  )
+
   const roundComplete = computed(() => scores1.value.every(s => s !== null) && scores2.value.every(s => s !== null))
 
   const throws1 = computed(() => scores1.value.filter(s => s !== null).length)
@@ -76,6 +85,7 @@
   const tbEntered = (player) => (player === 1 ? tiebreak.value?.s1 : tiebreak.value?.s2) !== null
 
   function sideDisabled(player) {
+    if (player === ghostSide.value) return true // the ghost never throws by hand
     if (viewedRound.value) return false
     if (tiebreakActive.value) return tbEntered(player)
     return player === 1 ? player1Disabled.value : player2Disabled.value
@@ -84,6 +94,8 @@
   function sideClutchAvailable(player) {
     if (viewedRound.value) return true
     if (tiebreakActive.value) return tiebreak.value.phase === 'clutch'
+    // Replacing the last and final throw? Clutch is still on the table.
+    if (selected.value?.player === player && selected.value.index === THROWS - 1) return true
     return player === 1 ? player1ClutchAvailable.value : player2ClutchAvailable.value
   }
 
@@ -192,16 +204,30 @@
 
     const arr = player === 1 ? displayScores1.value : displayScores2.value
     let oldEntry = null
+    let idx
     if (selected.value?.player === player) {
-      oldEntry = arr[selected.value.index]
-      arr[selected.value.index] = entry
+      idx = selected.value.index
+      oldEntry = arr[idx]
+      arr[idx] = entry
       selected.value = null
     } else {
-      const idx = arr.indexOf(null)
+      idx = arr.indexOf(null)
       if (idx === -1) return
       arr[idx] = entry
     }
     syncEntry(entry, player, oldEntry, displayRound.value)
+    // In a ghost match the opponent doesn't throw — mirror a 0 into the ghost's
+    // matching slot so the round fills and completes normally.
+    if (ghostSide.value !== null && player !== ghostSide.value) fillGhost(idx)
+  }
+
+  function fillGhost(index) {
+    const g = ghostSide.value
+    const arr = g === 1 ? displayScores1.value : displayScores2.value
+    if (arr[index] !== null) return
+    const entry = { value: 0, drop: false }
+    arr[index] = entry
+    syncEntry(entry, g, null, displayRound.value)
   }
 
   // Persist a placed/edited score to the API when scoring an event match

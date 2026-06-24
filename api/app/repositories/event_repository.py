@@ -115,6 +115,23 @@ class EventRepository:
             logger.info("Player %s added to event %s", player_name, event_id)
         return updated
 
+    async def remove_player(self, event_id: str, player_name: str) -> Event | None:
+        event = await self.get_event(event_id)
+        if not event:
+            return None
+        if player_name not in event.players:
+            raise ValueError("Player is not in the event")
+        updated = await self.update_event_fields(
+            event_id,
+            {
+                "players": [p for p in event.players if p != player_name],
+                "late_players": [p for p in event.late_players if p != player_name],
+            },
+        )
+        if updated:
+            logger.info("Player %s removed from event %s", player_name, event_id)
+        return updated
+
     async def set_player_late(self, event_id: str, player_name: str, late: bool) -> Event | None:
         event = await self.get_event(event_id)
         if not event:
