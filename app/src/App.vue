@@ -1,5 +1,5 @@
 <script setup>
-  import { ref, nextTick } from 'vue'
+  import { ref, nextTick, computed } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
 
@@ -7,14 +7,28 @@
   const player1Name = ref('Player 1')
   const player2Name = ref('Player 2')
   const matchContext = ref(null) // { matchId, eventId, player1Id, player2Id, eventName }
+  const activeGroup = ref(null)
 
   const showConfig = ref(true)
   const configRounds = ref(3)
   const configP1 = ref('Player 1')
   const configP2 = ref('Player 2')
 
+  const rosterPlayers = computed(() => activeGroup.value?.players ?? [])
+  const useRosterPicker = computed(() => rosterPlayers.value.length >= 2)
+
   const scoreboard = ref(null)
   const header = ref(null)
+
+  function onSelectGroup(group) {
+    activeGroup.value = group
+    if (group?.players?.length >= 2) {
+      configP1.value = group.players[0]
+      configP2.value = group.players[1]
+      player1Name.value = group.players[0]
+      player2Name.value = group.players[1]
+    }
+  }
 
   function openConfig() {
     configRounds.value = totalRounds.value
@@ -60,7 +74,7 @@
 
 <template>
   <div class="page">
-    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" />
+    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">
       <ScoreBoard
@@ -79,11 +93,22 @@
         <div class="modal">
           <h2 class="modal-title">Match Settings</h2>
 
+          <p v-if="activeGroup" class="modal-group-note">
+            Group: {{ activeGroup.event_name }}
+            <span v-if="activeGroup.checkfront_booking_code">({{ activeGroup.checkfront_booking_code }})</span>
+          </p>
+
           <label class="modal-label">Player 1 Name</label>
-          <input class="modal-input" v-model="configP1" placeholder="Player 1" />
+          <select v-if="useRosterPicker" class="modal-input" v-model="configP1">
+            <option v-for="name in rosterPlayers" :key="`p1-${name}`" :value="name">{{ name }}</option>
+          </select>
+          <input v-else class="modal-input" v-model="configP1" placeholder="Player 1" />
 
           <label class="modal-label">Player 2 Name</label>
-          <input class="modal-input" v-model="configP2" placeholder="Player 2" />
+          <select v-if="useRosterPicker" class="modal-input" v-model="configP2">
+            <option v-for="name in rosterPlayers" :key="`p2-${name}`" :value="name">{{ name }}</option>
+          </select>
+          <input v-else class="modal-input" v-model="configP2" placeholder="Player 2" />
 
           <label class="modal-label">Number of Rounds</label>
           <input class="modal-input" type="number" v-model.number="configRounds" min="1" max="10" />
@@ -117,5 +142,11 @@
   flex-direction: column;
   gap: 20px;
   flex: 1;
+}
+
+.modal-group-note {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: #93c5fd;
 }
 </style>

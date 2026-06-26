@@ -100,6 +100,11 @@ export async function getEvents(): Promise<ApiEvent[]> {
   return data
 }
 
+export async function getActiveCheckfrontEvents(): Promise<ApiEvent[]> {
+  const { data } = await http.get('/event/checkfront/active')
+  return data
+}
+
 export async function getEvent(eventId: string): Promise<ApiEvent> {
   const { data } = await http.get(`/event/${eventId}`)
   return data

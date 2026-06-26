@@ -136,3 +136,70 @@ def test_checkfront_webhook_creates_event(client, monkeypatch):
     data = response.json()
     assert data["source"] == "checkfront"
     assert data["players"] == ["Jordan Smith"]
+
+
+API_INDEX_ENTRY = {
+    "booking_id": 157,
+    "code": "KMVQ-060314",
+    "status_id": "PAID",
+    "customer_name": "Jordan Smith",
+    "customer_email": "jordan@example.com",
+    "summary": "Private Event 2Hr",
+    "date_desc": "Thu Jun 11, 2026",
+}
+
+API_BOOKING_DETAIL = {
+    "booking/157": {
+        **API_INDEX_ENTRY,
+        "start_date": 1394128800,
+        "fields": {"customer_name": "Jordan Smith"},
+        "items": {
+            "item": {
+                "item_id": "42",
+                "sku": "private-event-2hr",
+                "qty": "1",
+                "start_date": "1394128800",
+            }
+        },
+    }
+}
+
+
+def test_parse_checkfront_api_index_entry():
+    booking = parse_checkfront_payload({"booking/index": {"157": API_INDEX_ENTRY}})
+    assert booking is not None
+    assert booking.customer_name == "Jordan Smith"
+    assert booking.status == "PAID"
+
+
+def test_parse_checkfront_api_booking_detail():
+    booking = parse_checkfront_payload(API_BOOKING_DETAIL)
+    assert booking is not None
+    assert booking.item_skus == ["private-event-2hr"]
+
+
+@pytest.mark.asyncio
+async def test_pull_checkfront_bookings(monkeypatch):
+    monkeypatch.setenv("CHECKFRONT_GROUP_MODE", "booking")
+
+    class FakeApi:
+        async def list_bookings(self, *, start_date="today", status_id=None):
+            return [API_INDEX_ENTRY]
+
+        async def get_booking(self, booking_id: str):
+            return API_BOOKING_DETAIL
+
+    repo = EventRepository(FakeMongoClient())
+    from app.services.checkfront_pull import pull_checkfront_bookings
+
+    result = await pull_checkfront_bookings(repo, client=FakeApi())
+    assert result.synced == 1
+    assert result.events[0].players == ["Jordan Smith"]
+
+
+def test_checkfront_sync_requires_auth(client, monkeypatch):
+    monkeypatch.setenv("CHECKFRONT_API_URL", "https://example.checkfront.com/api/3.0")
+    monkeypatch.setenv("CHECKFRONT_API_KEY", "key")
+    monkeypatch.setenv("CHECKFRONT_API_SECRET", "secret")
+    response = client.post("/integrations/checkfront/sync")
+    assert response.status_code in {401, 403}

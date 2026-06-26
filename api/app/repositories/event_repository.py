@@ -100,6 +100,14 @@ class EventRepository:
             return None
         return Event(**docs[0])
 
+    async def get_active_checkfront_events(self) -> list[Event]:
+        collection = await self._collection()
+        cursor = collection.find(
+            {"source": "checkfront", "is_finished": False},
+            {"_id": 0},
+        ).sort("timestamp", -1)
+        return [Event(**doc) async for doc in cursor]
+
     async def get_event(self, event_id: str) -> Event | None:
         collection = await self._collection()
         doc = await collection.find_one({"event_id": event_id}, {"_id": 0})

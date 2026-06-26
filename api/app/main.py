@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from prometheus_fastapi_instrumentator import Instrumentator
+import asyncio
 import re
 import time
 import os
@@ -19,6 +20,7 @@ from app.logger import get_logger, request_id_var
 from app.bootstrap.initial_admin import ensure_initial_admin
 from app.db.mongo import MongoClient
 from app.db.redis import RedisClient
+from app.integrations.checkfront.client import CheckfrontApiClient
 
 logger = get_logger(__name__)
 
@@ -33,6 +35,22 @@ from app.routes.checkfront import router as checkfront_router
 
 # Admin route
 from app.routes.admin import router as admin_router, login_router as admin_login_router
+
+
+async def _checkfront_sync_loop(mongo_client: MongoClient) -> None:
+    interval = int(os.getenv("CHECKFRONT_SYNC_INTERVAL_SECONDS", "0") or "0")
+    if interval <= 0 or CheckfrontApiClient.from_env() is None:
+        return
+
+    from app.repositories.event_repository import EventRepository
+    from app.services.checkfront_pull import pull_checkfront_bookings
+
+    while True:
+        try:
+            await pull_checkfront_bookings(EventRepository(mongo_client))
+        except Exception:
+            logger.exception("Background Checkfront sync failed")
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
@@ -55,8 +73,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             expire_after_seconds=index.get("expireAfterSeconds")
         )
     await ensure_initial_admin(client)
+    sync_task = asyncio.create_task(_checkfront_sync_loop(client))
     logger.info("Startup complete")
     yield
+    sync_task.cancel()
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Shutting down")
     await client.close()
     await redis.close()
