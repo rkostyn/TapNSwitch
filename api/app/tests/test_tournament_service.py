@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 from app.services.tournament import (
+    GHOST_PLAYER_ID,
     build_bracket_matches,
+    build_late_entry_pairings,
     build_swiss_pairings,
     compute_match_winner,
     compute_swiss_standings,
@@ -47,6 +49,62 @@ def test_swiss_late_players_scheduled_last():
 
 def test_swiss_single_player_no_matches():
     assert build_swiss_pairings(["A"], [], 2) == []
+
+
+def test_swiss_odd_imbalance_adds_ghost_match():
+    # 5 players x 1 match each is odd: the odd one out throws a ghost match
+    pairings = build_swiss_pairings(["A", "B", "C", "D", "E"], [], 1)
+    ghosts = [p for p in pairings if p[1] == GHOST_PLAYER_ID]
+    assert len(ghosts) == 1
+    counts = {p: 0 for p in ["A", "B", "C", "D", "E"]}
+    for a, b in pairings:
+        counts[a] += 1
+        if b != GHOST_PLAYER_ID:
+            counts[b] += 1
+    assert all(c == 1 for c in counts.values())
+
+
+def test_swiss_even_pool_has_no_ghost():
+    pairings = build_swiss_pairings(["A", "B", "C", "D"], [], 1)
+    assert all(b != GHOST_PLAYER_ID for _, b in pairings)
+
+
+def test_swiss_ghost_match_winner_is_real_player():
+    # A ghost match's throws: the real player wins since the ghost scores 0
+    throws = [throw("A", "r1", 5), throw(GHOST_PLAYER_ID, "r1", 0)]
+    assert compute_match_winner("A", GHOST_PLAYER_ID, throws) == "A"
+
+
+# ---------------------------------------------------------------------------
+# Late-entry pairings (player added after play started)
+# ---------------------------------------------------------------------------
+
+def test_late_entry_gets_full_quota():
+    players = ["A", "B", "C", "D", "E"]
+    existing = [("A", "B"), ("C", "D"), ("A", "C"), ("B", "D")]
+    new_pairs = build_late_entry_pairings(players, ["E"], [], 2, existing)
+    assert len(new_pairs) == 2
+    assert all("E" in pair for pair in new_pairs)
+    # No repeat opponents within the new schedule
+    opps = [b if a == "E" else a for a, b in new_pairs]
+    assert len(set(opps)) == len(opps)
+
+
+def test_late_entry_avoids_existing_matchups():
+    # E already played A and B, so the new matches should use other opponents
+    players = ["A", "B", "C", "D", "E"]
+    existing = [("E", "A"), ("E", "B")]
+    new_pairs = build_late_entry_pairings(players, ["E"], [], 2, existing)
+    opps = {b if a == "E" else a for a, b in new_pairs}
+    assert opps.isdisjoint({"A", "B"})
+
+
+def test_late_entry_ghost_when_no_opponents_left():
+    # E has already played everyone — extra games fall back to a ghost
+    players = ["A", "B", "E"]
+    existing = [("E", "A"), ("E", "B")]
+    new_pairs = build_late_entry_pairings(players, ["E"], [], 2, existing)
+    assert all(pair == ("E", GHOST_PLAYER_ID) for pair in new_pairs)
 
 
 # ---------------------------------------------------------------------------

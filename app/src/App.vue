@@ -2,6 +2,9 @@
   import { ref, nextTick, computed } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
+  import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './config'
+
+  const displayName = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
 
   const totalRounds = ref(3)
   const player1Name = ref('Player 1')
@@ -47,8 +50,8 @@
   }
 
   function onSelectMatch({ match, event }) {
-    player1Name.value = match.player_1_id
-    player2Name.value = match.player_2_id
+    player1Name.value = displayName(match.player_1_id)
+    player2Name.value = displayName(match.player_2_id)
     totalRounds.value = match.rounds_per_match
     matchContext.value = {
       matchId: match.match_id,

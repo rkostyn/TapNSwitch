@@ -201,6 +201,46 @@ def test_add_player_finished_event(client, auth_token):
     assert response.status_code == 423
 
 
+def test_remove_player(client, auth_token):
+    event = _create_event(client, auth_token)
+    response = client.delete(
+        f"/event/{event['event_id']}/player/Bob", headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 200
+    assert "Bob" not in response.json()["players"]
+
+
+def test_remove_player_also_clears_late(client, auth_token):
+    event = _create_event(client, auth_token)
+    event_id = event["event_id"]
+    client.put(f"/event/{event_id}/player/Bob/late", json={"late": True}, headers=auth_headers(auth_token))
+    response = client.delete(f"/event/{event_id}/player/Bob", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    assert "Bob" not in response.json()["late_players"]
+
+
+def test_remove_unknown_player(client, auth_token):
+    event = _create_event(client, auth_token)
+    response = client.delete(
+        f"/event/{event['event_id']}/player/Nobody", headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 404
+
+
+def test_remove_player_event_not_found(client, auth_token):
+    response = client.delete("/event/nonexistent/player/Bob", headers=auth_headers(auth_token))
+    assert response.status_code == 404
+
+
+def test_remove_player_finished_event(client, auth_token):
+    event = _create_event(client, auth_token)
+    client.post(f"/event/{event['event_id']}/finish", headers=auth_headers(auth_token))
+    response = client.delete(
+        f"/event/{event['event_id']}/player/Bob", headers=auth_headers(auth_token)
+    )
+    assert response.status_code == 423
+
+
 def test_mark_player_late_and_back(client, auth_token):
     event = _create_event(client, auth_token)
     event_id = event["event_id"]
@@ -261,14 +301,51 @@ def test_generate_swiss_matches(client, auth_token):
     assert all(c == 2 for c in counts.values())
 
 
-def test_generate_swiss_twice_conflicts(client, auth_token):
+def test_regenerate_swiss_when_unplayed(client, auth_token):
+    # Adding a player and regenerating before any throws rebuilds the schedule
     event = _create_event(client, auth_token)
-    client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token))
-    response = client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token))
-    assert response.status_code == 409
+    event_id = event["event_id"]
+    client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token))
+    client.post(f"/event/{event_id}/player", json={"player_name": "Eve"}, headers=auth_headers(auth_token))
+    response = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    players_in_matches = {p for m in response.json() for p in (m["player_1_id"], m["player_2_id"])}
+    assert "Eve" in players_in_matches
 
 
-def test_swiss_config_locked_after_generation(client, auth_token):
+def test_add_player_after_scores_appends_matches(client, auth_token):
+    # A late entrant can join even after a match is scored: their matches are
+    # appended and the already-scored matches are left untouched.
+    event = _create_event(client, auth_token)
+    event_id = event["event_id"]
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    _submit_round_throws(client, auth_token, matches[0], 1, 5, 1)
+    scored_id = matches[0]["match_id"]
+
+    client.post(f"/event/{event_id}/player", json={"player_name": "Eve"}, headers=auth_headers(auth_token))
+    response = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    all_matches = response.json()
+
+    # Original scored match is still present and unchanged
+    assert any(m["match_id"] == scored_id for m in all_matches)
+    # Eve now has her full quota of matches
+    eve_matches = [m for m in all_matches if "Eve" in (m["player_1_id"], m["player_2_id"])]
+    assert len(eve_matches) == 2
+
+
+def test_regenerate_swiss_after_scores_without_new_players_is_noop(client, auth_token):
+    event = _create_event(client, auth_token, players=["Alice", "Bob"])
+    event_id = event["event_id"]
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    _submit_round_throws(client, auth_token, matches[0], 1, 5, 1)
+    response = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    assert len(response.json()) == len(matches)
+
+
+def test_swiss_config_editable_until_scores(client, auth_token):
+    # Config stays editable after generation, as long as no throws are recorded
     event = _create_event(client, auth_token)
     client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token))
     response = client.put(
@@ -276,7 +353,42 @@ def test_swiss_config_locked_after_generation(client, auth_token):
         json={"swiss_matches_per_player": 3, "swiss_rounds_per_match": 1},
         headers=auth_headers(auth_token),
     )
+    assert response.status_code == 200
+
+
+def test_swiss_config_locked_after_scores(client, auth_token):
+    event = _create_event(client, auth_token, players=["Alice", "Bob"])
+    event_id = event["event_id"]
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    _submit_round_throws(client, auth_token, matches[0], 1, 5, 1)
+    response = client.put(
+        f"/event/{event_id}/swiss-config",
+        json={"swiss_matches_per_player": 3, "swiss_rounds_per_match": 1},
+        headers=auth_headers(auth_token),
+    )
     assert response.status_code == 409
+
+
+def test_generate_swiss_odd_imbalance_adds_ghost(client, auth_token):
+    # 5 players x 1 match each is odd, so one player gets a ghost match
+    event = _create_event(client, auth_token, players=["Alice", "Bob", "Carol", "Dan", "Eve"])
+    event_id = event["event_id"]
+    client.put(
+        f"/event/{event_id}/swiss-config",
+        json={"swiss_matches_per_player": 1, "swiss_rounds_per_match": 2},
+        headers=auth_headers(auth_token),
+    )
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    ghost_matches = [m for m in matches if m["player_2_id"] == "__ghost__"]
+    assert len(ghost_matches) == 1
+    # Everyone still gets exactly one match
+    counts = {}
+    for m in matches:
+        for p in (m["player_1_id"], m["player_2_id"]):
+            if p != "__ghost__":
+                counts[p] = counts.get(p, 0) + 1
+    assert all(c == 1 for c in counts.values())
+    assert len(counts) == 5
 
 
 def test_generate_swiss_late_players_last(client, auth_token):

@@ -124,6 +124,11 @@ export async function addPlayer(eventId: string, playerName: string): Promise<Ap
   return data
 }
 
+export async function removePlayer(eventId: string, playerName: string): Promise<ApiEvent> {
+  const { data } = await http.delete(`/event/${eventId}/player/${encodeURIComponent(playerName)}`)
+  return data
+}
+
 export async function setPlayerLate(eventId: string, playerName: string, late: boolean): Promise<ApiEvent> {
   const { data } = await http.put(`/event/${eventId}/player/${encodeURIComponent(playerName)}/late`, { late })
   return data

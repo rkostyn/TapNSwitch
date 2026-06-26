@@ -3,6 +3,7 @@
   import {
     getEvent,
     addPlayer,
+    removePlayer,
     setPlayerLate,
     updateSwissConfig,
     generateSwissMatches,
@@ -14,6 +15,7 @@
     finishEvent,
   } from '../api'
   import { getOrCreateClientId } from '../clientId'
+  import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from '../config'
   import BracketView from './BracketView.vue'
 
   const props = defineProps(['eventId'])
@@ -37,6 +39,10 @@
   const newPlayer = ref('')
   const configMatches = ref(2)
   const configRounds = ref(2)
+
+  // After Swiss matches exist, adding a player re-opens the generate controls so
+  // the schedule can be rebuilt to include them.
+  const needsRegen = ref(false)
 
   const showBracketPrompt = ref(false)
   const bracketRounds = ref(3)
@@ -114,7 +120,17 @@
     await run(async () => {
       event.value = await addPlayer(props.eventId, name)
       newPlayer.value = ''
+      // A new player needs matches — surface the generate controls again.
+      if (swissGenerated.value) needsRegen.value = true
     }, 'Failed to add player.')
+  }
+
+  async function removePlayerFromEvent(player) {
+    await run(async () => {
+      event.value = await removePlayer(props.eventId, player)
+      // The schedule no longer matches the roster — offer to rebuild it.
+      if (swissGenerated.value) needsRegen.value = true
+    }, 'Failed to remove player.')
   }
 
   async function toggleLate(player) {
@@ -128,8 +144,19 @@
     await run(async () => {
       event.value = await updateSwissConfig(props.eventId, configMatches.value, configRounds.value)
       await generateSwissMatches(props.eventId)
+      needsRegen.value = false
       await load()
     }, 'Failed to generate swiss matches.')
+  }
+
+  // Roster changed after generation: rebuild the schedule (before any scores) or
+  // append matches for late entrants (after). Config is left as-is.
+  async function regenerateMatches() {
+    await run(async () => {
+      await generateSwissMatches(props.eventId)
+      needsRegen.value = false
+      await load()
+    }, 'Failed to update swiss matches.')
   }
 
   async function generateScores() {
@@ -154,8 +181,13 @@
     }, 'Failed to update rounds.')
   }
 
+  function displayPlayer(id) {
+    if (!id) return 'TBD'
+    return id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id
+  }
+
   function matchLabel(match) {
-    return `${match.player_1_id ?? 'TBD'} vs ${match.player_2_id ?? 'TBD'}`
+    return `${displayPlayer(match.player_1_id)} vs ${displayPlayer(match.player_2_id)}`
   }
 
   function matchStatus(match) {
@@ -237,13 +269,23 @@
               {{ player }}
               <span v-if="event.late_players.includes(player)" class="late-badge">Late</span>
             </span>
-            <button
-              class="outline-pill-btn late-toggle"
-              :disabled="busy || event.is_finished"
-              @click="toggleLate(player)"
-            >
-              {{ event.late_players.includes(player) ? 'Arrived' : 'Mark Late' }}
-            </button>
+            <span class="player-actions">
+              <button
+                class="outline-pill-btn late-toggle"
+                :disabled="busy || event.is_finished"
+                @click="toggleLate(player)"
+              >
+                {{ event.late_players.includes(player) ? 'Arrived' : 'Mark Late' }}
+              </button>
+              <button
+                class="outline-pill-btn remove-toggle"
+                :disabled="busy || event.is_finished"
+                title="Remove player"
+                @click="removePlayerFromEvent(player)"
+              >
+                Remove
+              </button>
+            </span>
           </li>
         </ul>
         <div class="add-player-row" v-if="!event.is_finished">
@@ -276,6 +318,18 @@
           </button>
         </template>
         <template v-else>
+          <div v-if="needsRegen" class="regen-block">
+            <p class="regen-note">
+              Roster changed — update the matches to include everyone. Scores already entered are kept;
+              new players get matches added.
+            </p>
+            <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="regenerateMatches">
+              Update Swiss Matches
+            </button>
+            <button class="modal-cancel full-btn" :disabled="busy" @click="needsRegen = false">
+              Cancel
+            </button>
+          </div>
           <ul class="match-list">
             <li
               v-for="match in sortedSwissMatches"
@@ -506,9 +560,19 @@
   border-radius: 10px;
 }
 
-.late-toggle {
+.player-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.late-toggle, .remove-toggle {
   font-size: 0.7rem;
   padding: 4px 10px;
+}
+
+.remove-toggle {
+  color: #f87171;
+  border-color: #f87171;
 }
 
 .add-player-row {
@@ -534,6 +598,21 @@
 
 .full-btn {
   width: 100%;
+}
+
+.regen-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.regen-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #fbbf24;
+  background: #3b2800;
+  border-radius: var(--radius-md);
 }
 
 .standings-table {

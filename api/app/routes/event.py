@@ -18,7 +18,13 @@ from app.models.event import (
 )
 from app.models.match import Match
 from app.models.throw import ThrowsGet
-from app.services.tournament import build_bracket_matches, build_swiss_pairings, compute_swiss_standings
+from app.services.tournament import (
+    GHOST_PLAYER_ID,
+    build_bracket_matches,
+    build_late_entry_pairings,
+    build_swiss_pairings,
+    compute_swiss_standings,
+)
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -108,6 +114,41 @@ async def _get_open_event(repo: EventRepository, event_id: str) -> Event:
     return event
 
 
+async def _swiss_played(mongo_client: MongoClient, event_id: str, swiss_match_ids: set[str]) -> bool:
+    """Whether any throw has been recorded in the event's swiss matches. Used to
+    protect results: once play starts, the schedule is extended rather than
+    rebuilt."""
+    if not swiss_match_ids:
+        return False
+    throw_repo = ThrowRepository(mongo_client)
+    throws = await throw_repo.get_throws_by_criteria(ThrowsGet(event_id=event_id))
+    return any(t.match_id in swiss_match_ids for t in throws)
+
+
+def _swiss_match_docs(event_id, pairings, rounds_per_match, now, start_sequence=1):
+    return [
+        {
+            "match_id": str(uuid.uuid4()),
+            "event_id": event_id,
+            "player_1_id": p1,
+            "player_2_id": p2,
+            "sequence": start_sequence + i,
+            "match_type": "swiss",
+            "rounds_per_match": rounds_per_match,
+            "bracket_round": None,
+            "bracket_slot": None,
+            "winner_id": None,
+            "timestamp": now,
+            "is_locked": False,
+            "locked_by": None,
+            "locked_at": None,
+            "is_finished": False,
+            "finished_at": None,
+        }
+        for i, (p1, p2) in enumerate(pairings)
+    ]
+
+
 @router.post("/{event_id}/player", response_model=Event)
 async def add_player(
     event_id: str,
@@ -121,6 +162,24 @@ async def add_player(
         result = await repo.add_player(event_id, body.player_name)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return result
+
+
+@router.delete("/{event_id}/player/{player_name}", response_model=Event)
+async def remove_player(
+    event_id: str,
+    player_name: str,
+    current_user: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    repo = EventRepository(mongo_client)
+    await _get_open_event(repo, event_id)
+    try:
+        result = await repo.remove_player(event_id, player_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Event not found")
     return result
@@ -154,8 +213,12 @@ async def update_swiss_config(
 ):
     repo = EventRepository(mongo_client)
     event = await _get_open_event(repo, event_id)
-    if event.swiss_generated_at:
-        raise HTTPException(status_code=409, detail="Swiss matches already generated")
+    if event.bracket_generated_at:
+        raise HTTPException(status_code=409, detail="Bracket already generated")
+    match_repo = MatchRepository(mongo_client)
+    existing = await match_repo.get_matches_by_event(event_id, match_type="swiss")
+    if await _swiss_played(mongo_client, event_id, {m.match_id for m in existing}):
+        raise HTTPException(status_code=409, detail="Swiss scores already recorded")
     return await repo.update_event_fields(event_id, body.model_dump())
 
 
@@ -167,36 +230,50 @@ async def generate_swiss_matches(
 ):
     repo = EventRepository(mongo_client)
     event = await _get_open_event(repo, event_id)
-    if event.swiss_generated_at:
-        raise HTTPException(status_code=409, detail="Swiss matches already generated")
+    if event.bracket_generated_at:
+        raise HTTPException(status_code=409, detail="Bracket already generated; swiss matches are locked")
     if len(event.players) < 2:
         raise HTTPException(status_code=409, detail="At least 2 players are required")
-    pairings = build_swiss_pairings(event.players, event.late_players, event.swiss_matches_per_player)
-    now = datetime.now(UTC)
-    docs = [
-        {
-            "match_id": str(uuid.uuid4()),
-            "event_id": event_id,
-            "player_1_id": p1,
-            "player_2_id": p2,
-            "sequence": i + 1,
-            "match_type": "swiss",
-            "rounds_per_match": event.swiss_rounds_per_match,
-            "bracket_round": None,
-            "bracket_slot": None,
-            "winner_id": None,
-            "timestamp": now,
-            "is_locked": False,
-            "locked_by": None,
-            "locked_at": None,
-            "is_finished": False,
-            "finished_at": None,
-        }
-        for i, (p1, p2) in enumerate(pairings)
-    ]
     match_repo = MatchRepository(mongo_client)
+    existing = await match_repo.get_matches_by_event(event_id, match_type="swiss")
+    now = datetime.now(UTC)
+
+    if existing and await _swiss_played(mongo_client, event_id, {m.match_id for m in existing}):
+        # Play has started — keep the scored matches and only schedule games for
+        # players added since, so a late entrant can still join the swiss stage.
+        scheduled = {
+            p for m in existing for p in (m.player_1_id, m.player_2_id)
+            if p and p != GHOST_PLAYER_ID
+        }
+        new_players = [p for p in event.players if p not in scheduled]
+        if not new_players:
+            return existing
+        pairings = build_late_entry_pairings(
+            event.players, new_players, event.late_players,
+            event.swiss_matches_per_player,
+            [(m.player_1_id, m.player_2_id) for m in existing],
+        )
+        start_sequence = max((m.sequence for m in existing), default=0) + 1
+        docs = _swiss_match_docs(event_id, pairings, event.swiss_rounds_per_match, now, start_sequence)
+        added = await match_repo.insert_matches(docs)
+        # New games make the stored standings stale until recomputed.
+        await repo.update_event_fields(
+            event_id, {"swiss_standings": None, "standings_generated_at": None}
+        )
+        logger.info("Added %d swiss matches for %d late entrant(s) in event %s",
+                    len(added), len(new_players), event_id)
+        return existing + added
+
+    # No scores yet — (re)build the whole schedule from the current roster.
+    if existing:
+        await match_repo.delete_matches_by_event(event_id, match_type="swiss")
+    pairings = build_swiss_pairings(event.players, event.late_players, event.swiss_matches_per_player)
+    docs = _swiss_match_docs(event_id, pairings, event.swiss_rounds_per_match, now)
     matches = await match_repo.insert_matches(docs)
-    await repo.update_event_fields(event_id, {"swiss_generated_at": now})
+    await repo.update_event_fields(
+        event_id,
+        {"swiss_generated_at": now, "swiss_standings": None, "standings_generated_at": None},
+    )
     logger.info("Generated %d swiss matches for event %s", len(matches), event_id)
     return matches
 

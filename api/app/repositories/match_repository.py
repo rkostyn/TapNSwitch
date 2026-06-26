@@ -95,6 +95,15 @@ class MatchRepository:
         logger.warning("Delete matched no documents for match_id: %s", match_id)
         return False
 
+    async def delete_matches_by_event(self, event_id: str, match_type: str | None = None) -> int:
+        collection = await self._collection()
+        query: dict = {"event_id": event_id}
+        if match_type:
+            query["match_type"] = match_type
+        result = await collection.delete_many(query)
+        logger.info("Deleted %d matches for event %s (type=%s)", result.deleted_count, event_id, match_type)
+        return result.deleted_count
+
     async def force_lock_match(self, match_id: str, user_id: str) -> Match | None:
         collection = await self._collection()
         doc = await collection.find_one_and_update(
