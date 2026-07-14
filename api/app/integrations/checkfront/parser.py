@@ -98,15 +98,28 @@ def _extract_extra_player_names(fields: dict[str, Any], configured_keys: list[st
     return names
 
 
-def parse_checkfront_payload(payload: dict[str, Any], *, player_field_keys: list[str] | None = None) -> CheckfrontBooking | None:
+def _extract_api_booking_record(payload: dict[str, Any]) -> dict[str, Any] | None:
     booking = _as_dict(payload.get("booking"))
-    if not booking:
-        return None
+    if booking:
+        return booking
+    index = payload.get("booking/index")
+    if isinstance(index, dict) and len(index) == 1:
+        return _as_dict(next(iter(index.values())))
+    for key, value in payload.items():
+        if isinstance(key, str) and key.startswith("booking/") and isinstance(value, dict):
+            return value
+    return None
 
+
+def _parse_booking_record(
+    booking: dict[str, Any],
+    *,
+    player_field_keys: list[str] | None = None,
+) -> CheckfrontBooking | None:
     attrs = _as_dict(booking.get("@attributes"))
     booking_id = _pick_str(attrs, "booking_id") or _pick_str(booking, "booking_id")
     code = _pick_str(booking, "code")
-    status = (_pick_str(booking, "status") or "").upper()
+    status = (_pick_str(booking, "status", "status_id") or "").upper()
     if not booking_id or not code:
         return None
 
@@ -115,11 +128,14 @@ def parse_checkfront_payload(payload: dict[str, Any], *, player_field_keys: list
     customer_name = (
         _pick_str(customer, "name", "customer_name")
         or _pick_str(fields, "customer_name", "name")
+        or _pick_str(booking, "customer_name")
     )
     if not customer_name:
         return None
 
     items = _normalize_items(_as_dict(booking.get("order")).get("items"))
+    if not items:
+        items = _normalize_items(booking.get("items"))
     item_ids: list[str] = []
     item_skus: list[str] = []
     qty_total = 0
@@ -146,14 +162,36 @@ def parse_checkfront_payload(payload: dict[str, Any], *, player_field_keys: list
         code=code,
         status=status,
         customer_name=customer_name,
-        customer_email=_pick_str(customer, "email", "customer_email") or _pick_str(fields, "customer_email"),
-        customer_phone=_pick_str(customer, "phone", "customer_phone") or _pick_str(fields, "customer_phone"),
+        customer_email=(
+            _pick_str(customer, "email", "customer_email")
+            or _pick_str(fields, "customer_email")
+            or _pick_str(booking, "customer_email")
+        ),
+        customer_phone=(
+            _pick_str(customer, "phone", "customer_phone")
+            or _pick_str(fields, "customer_phone")
+            or _pick_str(booking, "customer_phone")
+        ),
         start_date=start_date,
         item_ids=item_ids,
         item_skus=item_skus,
         qty=max(qty_total, 1),
         extra_player_names=extra_names,
     )
+
+
+def parse_checkfront_payload(payload: dict[str, Any], *, player_field_keys: list[str] | None = None) -> CheckfrontBooking | None:
+    booking = _extract_api_booking_record(payload)
+    if not booking:
+        return None
+    return _parse_booking_record(booking, player_field_keys=player_field_keys)
+
+
+def iter_checkfront_index_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    index = payload.get("booking/index")
+    if not isinstance(index, dict):
+        return []
+    return [_as_dict(entry) for entry in index.values()]
 
 
 def parse_checkfront_body(raw_body: bytes, *, player_field_keys: list[str] | None = None) -> CheckfrontBooking | None:

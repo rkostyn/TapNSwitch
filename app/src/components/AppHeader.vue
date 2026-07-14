@@ -1,6 +1,6 @@
 <script setup>
-  import { ref } from 'vue'
-  import { login } from '../api'
+  import { ref, onMounted, onUnmounted, watch } from 'vue'
+  import { login, getActiveCheckfrontEvents } from '../api'
   import { getCookie, setCookie, deleteCookie } from '../cookies'
   import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
@@ -8,7 +8,7 @@
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
 
-  const emit = defineEmits(['openConfig', 'selectMatch'])
+  const emit = defineEmits(['openConfig', 'selectMatch', 'selectGroup'])
 
   const showLogin = ref(false)
   const username = ref('')
@@ -19,12 +19,80 @@
   const showEvents = ref(false)
   const eventsInitialId = ref(null)
 
+  const checkfrontGroups = ref([])
+  const selectedGroupId = ref('')
+  const groupsLoading = ref(false)
+  let groupsPollTimer = null
+
+  function groupLabel(event) {
+    const code = event.checkfront_booking_code ? ` · ${event.checkfront_booking_code}` : ''
+    const count = event.players?.length ?? 0
+    return `${event.event_name} (${count} players${code})`
+  }
+
+  async function loadCheckfrontGroups() {
+    if (!loggedInUser.value) return
+    groupsLoading.value = true
+    try {
+      const groups = await getActiveCheckfrontEvents()
+      checkfrontGroups.value = groups
+      if (selectedGroupId.value && !groups.some(g => g.event_id === selectedGroupId.value)) {
+        selectedGroupId.value = ''
+        emit('selectGroup', null)
+      }
+    } catch {
+      // Keep last known groups if refresh fails mid-shift
+    } finally {
+      groupsLoading.value = false
+    }
+  }
+
+  function onGroupChange() {
+    const group = checkfrontGroups.value.find(g => g.event_id === selectedGroupId.value) ?? null
+    emit('selectGroup', group)
+  }
+
+  function startGroupsPoll() {
+    stopGroupsPoll()
+    groupsPollTimer = setInterval(loadCheckfrontGroups, 30000)
+  }
+
+  function stopGroupsPoll() {
+    if (groupsPollTimer) {
+      clearInterval(groupsPollTimer)
+      groupsPollTimer = null
+    }
+  }
+
+  watch(loggedInUser, (user) => {
+    if (user) {
+      loadCheckfrontGroups()
+      startGroupsPoll()
+    } else {
+      stopGroupsPoll()
+      checkfrontGroups.value = []
+      selectedGroupId.value = ''
+      emit('selectGroup', null)
+    }
+  }, { immediate: true })
+
+  onMounted(() => {
+    if (loggedInUser.value) loadCheckfrontGroups()
+  })
+
+  onUnmounted(stopGroupsPoll)
+
   function openEvents(eventId = null) {
     eventsInitialId.value = eventId
     showEvents.value = true
   }
 
-  defineExpose({ openEvents })
+  function onEventsClose() {
+    showEvents.value = false
+    loadCheckfrontGroups()
+  }
+
+  defineExpose({ openEvents, loadCheckfrontGroups })
 
   function openLogin() {
     username.value = ''
@@ -71,6 +139,22 @@
   <header class="app-header">
     <div class="header-left">
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
+      <label v-if="loggedInUser" class="group-picker">
+        <span class="group-picker-label">Group</span>
+        <select
+          class="group-picker-select"
+          v-model="selectedGroupId"
+          @change="onGroupChange"
+          :disabled="groupsLoading && checkfrontGroups.length === 0"
+        >
+          <option value="">
+            {{ checkfrontGroups.length ? 'Select Checkfront group…' : 'No Checkfront groups yet' }}
+          </option>
+          <option v-for="group in checkfrontGroups" :key="group.event_id" :value="group.event_id">
+            {{ groupLabel(group) }}
+          </option>
+        </select>
+      </label>
     </div>
     <div class="header-right">
       <template v-if="loggedInUser">
@@ -86,7 +170,7 @@
     </div>
   </header>
 
-  <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="showEvents = false" @selectMatch="emit('selectMatch', $event)" />
+  <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="onEventsClose" @selectMatch="emit('selectMatch', $event)" />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
@@ -144,6 +228,39 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.group-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.group-picker-label {
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.group-picker-select {
+  min-width: 180px;
+  max-width: min(420px, 48vw);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #334155;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  font: inherit;
 }
 
 .config-btn {

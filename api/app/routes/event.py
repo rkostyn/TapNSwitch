@@ -53,6 +53,16 @@ async def list_events(
     return await repo.get_events_by_user(current_user)
 
 
+@router.get("/checkfront/active", response_model=list[Event])
+async def list_active_checkfront_events(
+    current_user: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    """Open Checkfront-imported groups for today’s floor — used for the group picker."""
+    repo = EventRepository(mongo_client)
+    return await repo.get_active_checkfront_events()
+
+
 @router.get("/{event_id}", response_model=Event, dependencies=[Depends(rate_limit(60))])
 async def get_event(
     event_id: str,

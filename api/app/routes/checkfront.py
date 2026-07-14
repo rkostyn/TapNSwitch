@@ -2,18 +2,28 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.db.mongo import MongoClient
-from app.dependencies import get_mongo_client, verify_checkfront_webhook
+from app.dependencies import get_current_user, get_mongo_client, verify_checkfront_webhook
+from app.integrations.checkfront.client import CheckfrontApiClient, CheckfrontApiError
 from app.integrations.checkfront.parser import parse_checkfront_body
 from app.logger import get_logger
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
 from app.services.checkfront_events import sync_checkfront_booking
+from app.services.checkfront_pull import pull_checkfront_bookings
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/integrations/checkfront", tags=["Checkfront"])
+
+
+class CheckfrontSyncResponse(BaseModel):
+    synced: int
+    skipped: int
+    failed: int
+    events: list[Event]
 
 
 def _player_field_keys() -> list[str]:
@@ -44,3 +54,26 @@ async def checkfront_webhook(
         len(event.players),
     )
     return event
+
+
+@router.post("/sync", response_model=CheckfrontSyncResponse)
+async def checkfront_sync(
+    _: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    if CheckfrontApiClient.from_env() is None:
+        raise HTTPException(status_code=503, detail="Checkfront API credentials are not configured")
+
+    repo = EventRepository(mongo_client)
+    try:
+        result = await pull_checkfront_bookings(repo)
+    except CheckfrontApiError as exc:
+        status_code = exc.status_code or 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    return CheckfrontSyncResponse(
+        synced=result.synced,
+        skipped=result.skipped,
+        failed=result.failed,
+        events=result.events,
+    )
