@@ -263,6 +263,11 @@
           <span class="toggle-indicator">{{ playersCollapsed ? '▸' : '▾' }}</span>
         </button>
         <template v-if="!playersCollapsed">
+        <p v-if="event.source === 'checkfront'" class="checkfront-players-note">
+          Players imported from Checkfront
+          <span v-if="event.checkfront_booking_code">({{ event.checkfront_booking_code }})</span>.
+          Add names below for extra throwers or walk-ins.
+        </p>
         <ul class="player-list">
           <li v-for="player in event.players" :key="player" class="player-item">
             <span class="player-name">
@@ -472,6 +477,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.checkfront-players-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.4;
 }
 
 .section-title {
