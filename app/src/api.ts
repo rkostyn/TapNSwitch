@@ -105,6 +105,31 @@ export async function getActiveCheckfrontEvents(): Promise<ApiEvent[]> {
   return data
 }
 
+export interface CheckfrontStatus {
+  configured: boolean
+  poll_enabled: boolean
+  sync_interval_seconds: number
+  api_url: string | null
+  group_mode: string
+}
+
+export interface CheckfrontSyncResult {
+  synced: number
+  skipped: number
+  failed: number
+  events: ApiEvent[]
+}
+
+export async function getCheckfrontStatus(): Promise<CheckfrontStatus> {
+  const { data } = await http.get('/integrations/checkfront/status')
+  return data
+}
+
+export async function syncCheckfrontBookings(): Promise<CheckfrontSyncResult> {
+  const { data } = await http.post('/integrations/checkfront/sync')
+  return data
+}
+
 export async function getEvent(eventId: string): Promise<ApiEvent> {
   const { data } = await http.get(`/event/${eventId}`)
   return data

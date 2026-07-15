@@ -39,11 +39,23 @@ from app.routes.admin import router as admin_router, login_router as admin_login
 
 async def _checkfront_sync_loop(mongo_client: MongoClient) -> None:
     interval = int(os.getenv("CHECKFRONT_SYNC_INTERVAL_SECONDS", "0") or "0")
-    if interval <= 0 or CheckfrontApiClient.from_env() is None:
+    if interval <= 0:
+        logger.info(
+            "Checkfront background sync disabled (CHECKFRONT_SYNC_INTERVAL_SECONDS=%s)",
+            interval,
+        )
+        return
+    if CheckfrontApiClient.from_env() is None:
+        logger.warning(
+            "Checkfront background sync disabled: set CHECKFRONT_API_URL, "
+            "CHECKFRONT_API_KEY, and CHECKFRONT_API_SECRET"
+        )
         return
 
     from app.repositories.event_repository import EventRepository
     from app.services.checkfront_pull import pull_checkfront_bookings
+
+    logger.info("Checkfront background sync enabled every %s seconds", interval)
 
     while True:
         try:

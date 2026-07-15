@@ -203,3 +203,28 @@ def test_checkfront_sync_requires_auth(client, monkeypatch):
     monkeypatch.setenv("CHECKFRONT_API_SECRET", "secret")
     response = client.post("/integrations/checkfront/sync")
     assert response.status_code in {401, 403}
+
+
+def test_checkfront_status_requires_auth(client):
+    response = client.get("/integrations/checkfront/status")
+    assert response.status_code in {401, 403}
+
+
+def test_checkfront_status_reports_configuration(client, monkeypatch, auth_token):
+    monkeypatch.setenv("CHECKFRONT_API_URL", "https://urbanaxesbaltimore.checkfront.com/api/3.0")
+    monkeypatch.setenv("CHECKFRONT_API_KEY", "key")
+    monkeypatch.setenv("CHECKFRONT_API_SECRET", "secret")
+    monkeypatch.setenv("CHECKFRONT_SYNC_INTERVAL_SECONDS", "300")
+    monkeypatch.setenv("CHECKFRONT_GROUP_MODE", "booking")
+
+    response = client.get(
+        "/integrations/checkfront/status",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["poll_enabled"] is True
+    assert data["sync_interval_seconds"] == 300
+    assert data["group_mode"] == "booking"
+    assert "urbanaxesbaltimore" in data["api_url"]
