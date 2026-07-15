@@ -1,6 +1,6 @@
 <script setup>
   import { ref, onMounted, onUnmounted, watch } from 'vue'
-  import { login, getActiveCheckfrontEvents } from '../api'
+  import { login, getActiveCheckfrontEvents, getCheckfrontStatus, syncCheckfrontBookings } from '../api'
   import { getCookie, setCookie, deleteCookie } from '../cookies'
   import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
@@ -22,12 +22,55 @@
   const checkfrontGroups = ref([])
   const selectedGroupId = ref('')
   const groupsLoading = ref(false)
+  const checkfrontStatus = ref(null)
+  const syncLoading = ref(false)
+  const syncMessage = ref('')
   let groupsPollTimer = null
+  let syncMessageTimer = null
 
   function groupLabel(event) {
     const code = event.checkfront_booking_code ? ` · ${event.checkfront_booking_code}` : ''
     const count = event.players?.length ?? 0
     return `${event.event_name} (${count} players${code})`
+  }
+
+  async function loadCheckfrontStatus() {
+    if (!loggedInUser.value) return
+    try {
+      checkfrontStatus.value = await getCheckfrontStatus()
+    } catch {
+      checkfrontStatus.value = null
+    }
+  }
+
+  function showSyncMessage(message) {
+    syncMessage.value = message
+    if (syncMessageTimer) clearTimeout(syncMessageTimer)
+    syncMessageTimer = setTimeout(() => {
+      syncMessage.value = ''
+    }, 12000)
+  }
+
+  async function syncCheckfront() {
+    syncLoading.value = true
+    syncMessage.value = ''
+    try {
+      const result = await syncCheckfrontBookings()
+      showSyncMessage(`Synced ${result.synced} · skipped ${result.skipped} · failed ${result.failed}`)
+      await loadCheckfrontGroups()
+      await loadCheckfrontStatus()
+    } catch (e) {
+      const detail = e?.response?.data?.detail
+      if (e?.response?.status === 503) {
+        showSyncMessage('Checkfront credentials are not configured on the server.')
+      } else if (typeof detail === 'string') {
+        showSyncMessage(detail)
+      } else {
+        showSyncMessage('Checkfront sync failed. Check server logs.')
+      }
+    } finally {
+      syncLoading.value = false
+    }
   }
 
   async function loadCheckfrontGroups() {
@@ -66,21 +109,30 @@
 
   watch(loggedInUser, (user) => {
     if (user) {
+      loadCheckfrontStatus()
       loadCheckfrontGroups()
       startGroupsPoll()
     } else {
       stopGroupsPoll()
       checkfrontGroups.value = []
       selectedGroupId.value = ''
+      checkfrontStatus.value = null
+      syncMessage.value = ''
       emit('selectGroup', null)
     }
   }, { immediate: true })
 
   onMounted(() => {
-    if (loggedInUser.value) loadCheckfrontGroups()
+    if (loggedInUser.value) {
+      loadCheckfrontStatus()
+      loadCheckfrontGroups()
+    }
   })
 
-  onUnmounted(stopGroupsPoll)
+  onUnmounted(() => {
+    stopGroupsPoll()
+    if (syncMessageTimer) clearTimeout(syncMessageTimer)
+  })
 
   function openEvents(eventId = null) {
     eventsInitialId.value = eventId
@@ -155,6 +207,18 @@
           </option>
         </select>
       </label>
+      <button
+        v-if="loggedInUser"
+        class="auth-btn sync-btn"
+        @click="syncCheckfront"
+        :disabled="syncLoading || checkfrontStatus?.configured === false"
+        :title="checkfrontStatus?.configured === false
+          ? 'Checkfront API credentials are not set on the server'
+          : 'Pull today\'s bookings from Checkfront now'"
+      >
+        {{ syncLoading ? 'Syncing…' : 'Sync Checkfront' }}
+      </button>
+      <span v-if="loggedInUser && syncMessage" class="sync-message">{{ syncMessage }}</span>
     </div>
     <div class="header-right">
       <template v-if="loggedInUser">
@@ -301,5 +365,14 @@
   background: var(--color-purple-soft);
   border: 1px solid var(--color-purple-edge);
   border-radius: var(--radius-sm);
+}
+
+.sync-message {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  max-width: min(320px, 30vw);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

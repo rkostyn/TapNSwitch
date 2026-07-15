@@ -181,6 +181,15 @@
 }
 .events-btn:hover { background: var(--color-success-soft); }
 
+.sync-btn {
+  background: transparent;
+  color: var(--color-purple);
+  border: 1px solid var(--color-purple-edge);
+  flex-shrink: 0;
+}
+.sync-btn:hover:not(:disabled) { background: var(--color-purple-soft); }
+.sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Outline pill (add-player and similar small actions) */
 .outline-pill-btn {
   align-self: flex-start;

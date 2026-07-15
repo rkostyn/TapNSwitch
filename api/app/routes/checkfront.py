@@ -26,6 +26,14 @@ class CheckfrontSyncResponse(BaseModel):
     events: list[Event]
 
 
+class CheckfrontStatusResponse(BaseModel):
+    configured: bool
+    poll_enabled: bool
+    sync_interval_seconds: int
+    api_url: str | None = None
+    group_mode: str
+
+
 def _player_field_keys() -> list[str]:
     raw = os.getenv("CHECKFRONT_PLAYER_FIELD_KEYS", "")
     return [part.strip() for part in raw.split(",") if part.strip()]
@@ -54,6 +62,21 @@ async def checkfront_webhook(
         len(event.players),
     )
     return event
+
+
+@router.get("/status", response_model=CheckfrontStatusResponse)
+async def checkfront_status(_: str = Depends(get_current_user)):
+    interval = int(os.getenv("CHECKFRONT_SYNC_INTERVAL_SECONDS", "0") or "0")
+    api_url = (os.getenv("CHECKFRONT_API_URL") or "").strip() or None
+    configured = CheckfrontApiClient.from_env() is not None
+    group_mode = (os.getenv("CHECKFRONT_GROUP_MODE") or "session").strip().lower()
+    return CheckfrontStatusResponse(
+        configured=configured,
+        poll_enabled=configured and interval > 0,
+        sync_interval_seconds=interval,
+        api_url=api_url,
+        group_mode=group_mode if group_mode in {"booking", "session"} else "session",
+    )
 
 
 @router.post("/sync", response_model=CheckfrontSyncResponse)
