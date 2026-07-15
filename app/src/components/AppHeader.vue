@@ -59,6 +59,14 @@
       showSyncMessage(`Synced ${result.synced} · skipped ${result.skipped} · failed ${result.failed}`)
       await loadCheckfrontGroups()
       await loadCheckfrontStatus()
+      // Keep Match Settings + open Events detail aligned with refreshed Checkfront rosters
+      if (selectedGroupId.value) {
+        const group = checkfrontGroups.value.find(g => g.event_id === selectedGroupId.value) ?? null
+        emit('selectGroup', group)
+        if (group?.event_id && showEvents.value) {
+          openEvents(group.event_id)
+        }
+      }
     } catch (e) {
       const detail = e?.response?.data?.detail
       if (e?.response?.status === 503) {
@@ -93,6 +101,10 @@
   function onGroupChange() {
     const group = checkfrontGroups.value.find(g => g.event_id === selectedGroupId.value) ?? null
     emit('selectGroup', group)
+    // Open the Checkfront event roster so Players matches the selected booking
+    if (group?.event_id) {
+      openEvents(group.event_id)
+    }
   }
 
   function startGroupsPoll() {
@@ -234,7 +246,13 @@
     </div>
   </header>
 
-  <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="onEventsClose" @selectMatch="emit('selectMatch', $event)" />
+  <EventsModal
+    v-if="showEvents"
+    :key="eventsInitialId ?? 'events-list'"
+    :initialEventId="eventsInitialId"
+    @close="onEventsClose"
+    @selectMatch="emit('selectMatch', $event)"
+  />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
