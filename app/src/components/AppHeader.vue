@@ -223,14 +223,14 @@
         v-if="loggedInUser"
         class="auth-btn sync-btn"
         @click="syncCheckfront"
-        :disabled="syncLoading || checkfrontStatus?.configured === false"
+        :disabled="syncLoading"
         :title="checkfrontStatus?.configured === false
-          ? 'Checkfront API credentials are not set on the server'
+          ? 'Checkfront API credentials may not be set on the server — tap to retry'
           : 'Pull today\'s bookings from Checkfront now'"
       >
-        {{ syncLoading ? 'Syncing…' : 'Sync Checkfront' }}
+        {{ syncLoading ? 'Syncing…' : 'Sync' }}
       </button>
-      <span v-if="loggedInUser && syncMessage" class="sync-message">{{ syncMessage }}</span>
+      <span v-if="loggedInUser && syncMessage" class="sync-message" :title="syncMessage">{{ syncMessage }}</span>
     </div>
     <div class="header-right">
       <template v-if="loggedInUser">
@@ -300,8 +300,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  height: 56px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  min-height: 56px;
   background: #13151c;
   border-bottom: 1px solid #1e293b;
 }
@@ -310,13 +312,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .group-picker {
