@@ -262,7 +262,7 @@
         <button class="auth-btn login-btn" @click="openLogin">Log In</button>
         <button class="auth-btn register-btn">Register</button>
       </template>
-      <button class="config-btn" @click="emit('openConfig')">&#9881;</button>
+      <button class="config-btn" aria-label="Match settings" @click="emit('openConfig')">&#9881;</button>
     </div>
   </header>
 
@@ -276,11 +276,12 @@
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
-      <div class="modal">
-        <h2 class="modal-title">Log In</h2>
+      <div class="modal" role="dialog" aria-labelledby="login-title">
+        <h2 id="login-title" class="modal-title">Log In</h2>
 
-        <label class="modal-label">Username</label>
+        <label class="modal-label" for="login-username">Username</label>
         <input
+          id="login-username"
           class="modal-input"
           v-model="username"
           placeholder="Username"
@@ -288,8 +289,9 @@
           :disabled="loading"
         />
 
-        <label class="modal-label">Password</label>
+        <label class="modal-label" for="login-password">Password</label>
         <input
+          id="login-password"
           class="modal-input"
           type="password"
           v-model="password"
@@ -353,8 +355,9 @@
 }
 
 .group-search-input {
-  width: min(200px, 28vw);
-  padding: 6px 10px;
+  width: min(200px, 40vw);
+  min-height: var(--touch-min);
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: var(--color-bg-input);
@@ -375,9 +378,10 @@
 }
 
 .group-picker-select {
-  min-width: 180px;
-  max-width: min(420px, 48vw);
-  padding: 6px 10px;
+  min-width: min(180px, 40vw);
+  max-width: min(420px, 70vw);
+  min-height: var(--touch-min);
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: var(--color-bg-input);
@@ -386,8 +390,10 @@
 }
 
 .config-btn {
-  width: 34px;
-  height: 34px;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
   font-size: 1.1rem;
   background: var(--color-bg-secondary);
   color: var(--color-purple);
@@ -428,9 +434,33 @@
 .sync-message {
   font-size: 0.75rem;
   color: var(--color-muted);
-  max-width: min(320px, 30vw);
+  max-width: min(320px, 60vw);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    padding: 8px 12px;
+  }
+
+  .header-left {
+    width: 100%;
+  }
+
+  .group-picker {
+    width: 100%;
+  }
+
+  .group-search-input,
+  .group-picker-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .logged-in-user {
+    display: none;
+  }
 }
 </style>

@@ -49,7 +49,7 @@
     nextTick(() => scoreboard.value.resetGame())
   }
 
-  function onSelectMatch({ match, event }) {
+  function onSelectMatch({ match, event, arenaLabel }) {
     player1Name.value = displayName(match.player_1_id)
     player2Name.value = displayName(match.player_2_id)
     totalRounds.value = match.rounds_per_match
@@ -59,6 +59,7 @@
       player1Id: match.player_1_id,
       player2Id: match.player_2_id,
       eventName: event?.event_name ?? '',
+      arenaLabel: arenaLabel ?? '',
       isFinished: match.is_finished,
     }
     showConfig.value = false
@@ -93,28 +94,28 @@
 
     <Teleport to="body">
       <div v-if="showConfig" class="modal-overlay" @click.self="showConfig = false">
-        <div class="modal">
-          <h2 class="modal-title">Match Settings</h2>
+        <div class="modal" role="dialog" aria-labelledby="match-settings-title">
+          <h2 id="match-settings-title" class="modal-title">Match Settings</h2>
 
           <p v-if="activeGroup" class="modal-group-note">
             Group: {{ activeGroup.event_name }}
             <span v-if="activeGroup.checkfront_booking_code">({{ activeGroup.checkfront_booking_code }})</span>
           </p>
 
-          <label class="modal-label">Player 1 Name</label>
-          <select v-if="useRosterPicker" class="modal-input" v-model="configP1">
+          <label class="modal-label" for="config-p1">Player 1 Name</label>
+          <select v-if="useRosterPicker" id="config-p1" class="modal-input" v-model="configP1">
             <option v-for="name in rosterPlayers" :key="`p1-${name}`" :value="name">{{ name }}</option>
           </select>
-          <input v-else class="modal-input" v-model="configP1" placeholder="Player 1" />
+          <input v-else id="config-p1" class="modal-input" v-model="configP1" placeholder="Player 1" />
 
-          <label class="modal-label">Player 2 Name</label>
-          <select v-if="useRosterPicker" class="modal-input" v-model="configP2">
+          <label class="modal-label" for="config-p2">Player 2 Name</label>
+          <select v-if="useRosterPicker" id="config-p2" class="modal-input" v-model="configP2">
             <option v-for="name in rosterPlayers" :key="`p2-${name}`" :value="name">{{ name }}</option>
           </select>
-          <input v-else class="modal-input" v-model="configP2" placeholder="Player 2" />
+          <input v-else id="config-p2" class="modal-input" v-model="configP2" placeholder="Player 2" />
 
-          <label class="modal-label">Number of Rounds</label>
-          <input class="modal-input" type="number" v-model.number="configRounds" min="1" max="10" />
+          <label class="modal-label" for="config-rounds">Number of Rounds</label>
+          <input id="config-rounds" class="modal-input" type="number" v-model.number="configRounds" min="1" max="10" />
 
           <p class="modal-warning">Applying settings will reset the current match.</p>
 
@@ -140,7 +141,7 @@
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
-  padding: 20px;
+  padding: clamp(12px, 3vw, 20px);
   display: flex;
   flex-direction: column;
   gap: 20px;

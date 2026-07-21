@@ -492,6 +492,7 @@
   <div class="scoreboard-root">
     <div class="round-bar">
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
+      <span v-if="matchContext?.arenaLabel" class="lane-banner">{{ matchContext.arenaLabel }}</span>
       <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
 
@@ -525,11 +526,21 @@
               <!-- Left player cell -->
               <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }">
                 <template v-if="leftScores[i-1] !== null">
-                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
-                    @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
+                  <button
+                    type="button"
+                    class="score-btn"
+                    :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
+                    @click="isSelected(sidesSwapped ? 2 : 1, i-1) ? confirmReset() : selectScore(sidesSwapped ? 2 : 1, i-1)"
+                  >
                     {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
                   </button>
-                  <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                  <button
+                    v-if="isSelected(sidesSwapped ? 2 : 1, i-1)"
+                    type="button"
+                    class="reset-cancel-btn"
+                    aria-label="Delete score"
+                    @click.stop="confirmReset"
+                  >✕</button>
                 </template>
                 <template v-else>–</template>
               </div>
@@ -539,11 +550,21 @@
               <!-- Right player cell -->
               <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }">
                 <template v-if="rightScores[i-1] !== null">
-                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
-                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
+                  <button
+                    type="button"
+                    class="score-btn"
+                    :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
+                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)"
+                  >
                     {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
                   </button>
-                  <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                  <button
+                    v-if="isSelected(sidesSwapped ? 1 : 2, i-1)"
+                    type="button"
+                    class="reset-cancel-btn"
+                    aria-label="Delete score"
+                    @click.stop="confirmReset"
+                  >✕</button>
                 </template>
                 <template v-else>–</template>
               </div>
@@ -685,6 +706,14 @@
   text-transform: uppercase;
   letter-spacing: 2px;
   color: #34d399;
+}
+
+.lane-banner {
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #60a5fa;
 }
 
 .sync-error {
