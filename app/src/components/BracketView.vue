@@ -1,8 +1,8 @@
 <script setup>
   import { computed } from 'vue'
 
-  const props = defineProps(['matches'])
-  const emit = defineEmits(['select', 'updateRounds'])
+  const props = defineProps(['matches', 'arenaOptions'])
+  const emit = defineEmits(['select', 'updateRounds', 'updateArena'])
 
   const rounds = computed(() => {
     const grouped = {}
@@ -31,6 +31,13 @@
       emit('updateRounds', match, value)
     }
   }
+
+  function changeArena(match, event) {
+    const value = event.target.value || null
+    if (value !== (match.arena_id ?? null)) {
+      emit('updateArena', match, value)
+    }
+  }
 </script>
 
 <template>
@@ -55,6 +62,16 @@
             <span v-if="match.is_finished" class="bracket-status done">Final</span>
             <span v-else-if="match.is_locked" class="bracket-status held">{{ match.locked_by }}</span>
             <span v-else class="bracket-status open">Open</span>
+            <select
+              v-if="arenaOptions?.length"
+              class="bracket-arena-select"
+              :value="match.arena_id ?? ''"
+              :disabled="match.is_finished"
+              @change="changeArena(match, $event)"
+            >
+              <option value="">Lane…</option>
+              <option v-for="a in arenaOptions" :key="a.id" :value="a.id">{{ a.label }}</option>
+            </select>
             <label class="bracket-rounds-label">
               Rounds
               <input
@@ -149,6 +166,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--color-bg-secondary);
@@ -182,5 +201,15 @@
   border: 1px solid var(--color-border-input);
   border-radius: 4px;
   font-size: 0.8rem;
+}
+
+.bracket-arena-select {
+  font-size: 0.7rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border-input);
+  background: var(--color-bg);
+  color: var(--color-text);
+  max-width: 110px;
 }
 </style>

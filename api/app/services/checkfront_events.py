@@ -3,6 +3,7 @@ import os
 from app.integrations.checkfront.models import CheckfrontBooking
 from app.models.event import Event, EventCreate
 from app.repositories.event_repository import EventRepository
+from app.repositories.venue_repository import VenueRepository
 
 CHECKFRONT_CREATED_BY = "checkfront"
 DEFAULT_ACCEPT_STATUSES = {"PAID", "CONF", "PEND", "HOLD", "WAIT"}
@@ -30,6 +31,24 @@ def _merge_players(existing: list[str], incoming: list[str]) -> list[str]:
         seen.add(key)
         merged.append(name)
     return merged
+
+
+async def _create_checkfront_event_with_arenas(
+    repo: EventRepository,
+    event_create: EventCreate,
+    *,
+    booking_id: str,
+    booking_code: str,
+    session_key: str | None,
+) -> Event:
+    created = await repo.create_checkfront_event(
+        event_create,
+        booking_id=booking_id,
+        booking_code=booking_code,
+        session_key=session_key,
+    )
+    arena_ids = [arena.id for arena in await VenueRepository(repo.mongo_client).get_arenas()]
+    return await repo.update_event_fields(created.event_id, {"arena_ids": arena_ids}) or created
 
 
 async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBooking) -> Event | None:
@@ -60,7 +79,8 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
             players=players,
             start_timestamp=booking.start_date,
         )
-        return await repo.create_checkfront_event(
+        return await _create_checkfront_event_with_arenas(
+            repo,
             event_create,
             booking_id=booking.booking_id,
             booking_code=booking.code,
@@ -104,7 +124,8 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
         players=players,
         start_timestamp=booking.start_date,
     )
-    return await repo.create_checkfront_event(
+    return await _create_checkfront_event_with_arenas(
+        repo,
         event_create,
         booking_id=booking.booking_id,
         booking_code=booking.code,

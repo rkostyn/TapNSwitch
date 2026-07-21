@@ -35,6 +35,7 @@ class MatchRepository:
             "locked_at": None,
             "is_finished": False,
             "finished_at": None,
+            "arena_id": None,
         }
         await collection.insert_one(doc)
         logger.info("Match created: %s (event=%s seq=%d)", match_id, match_create.event_id, match_create.sequence)
@@ -169,6 +170,18 @@ class MatchRepository:
         )
         if doc:
             logger.info("Bracket match %s %s set to %s", match_id, field, player_id)
+        return Match(**doc) if doc else None
+
+    async def update_arena_id(self, match_id: str, arena_id: str | None) -> Match | None:
+        collection = await self._collection()
+        doc = await collection.find_one_and_update(
+            {"match_id": match_id},
+            {"$set": {"arena_id": arena_id}},
+            projection={"_id": 0},
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc:
+            logger.info("Match %s arena set to %s", match_id, arena_id)
         return Match(**doc) if doc else None
 
     async def unlock_match(self, match_id: str, user_id: str) -> Match | None:

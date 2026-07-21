@@ -2,10 +2,13 @@
   import { ref, computed, onMounted } from 'vue'
   import {
     getEvent,
+    getVenueArenas,
     addPlayer,
     removePlayer,
     setPlayerLate,
     updateSwissConfig,
+    updateEventArenas,
+    updateMatchArena,
     generateSwissMatches,
     generateSwissScores,
     generateBracket,
@@ -25,6 +28,7 @@
 
   const event = ref(null)
   const matches = ref([])
+  const venueArenas = ref([])
   const loading = ref(true)
   const error = ref('')
   const busy = ref(false)
@@ -71,6 +75,16 @@
   const bracketGenerated = computed(() => !!event.value?.bracket_generated_at)
   const standings = computed(() => event.value?.swiss_standings ?? null)
 
+  const eventArenaOptions = computed(() => {
+    const ids = new Set(event.value?.arena_ids ?? [])
+    return venueArenas.value.filter(a => ids.has(a.id))
+  })
+
+  function arenaLabel(arenaId) {
+    if (!arenaId) return ''
+    return venueArenas.value.find(a => a.id === arenaId)?.label ?? arenaId
+  }
+
   function holderLabel(lockedBy) {
     if (!lockedBy) return ''
     return lockedBy === clientId ? 'this device' : `device ${lockedBy.slice(0, 8)}`
@@ -80,8 +94,14 @@
     loading.value = true
     error.value = ''
     try {
-      event.value = await getEvent(props.eventId)
-      matches.value = await getMatchesByEvent(props.eventId)
+      const [ev, matchList, arenas] = await Promise.all([
+        getEvent(props.eventId),
+        getMatchesByEvent(props.eventId),
+        getVenueArenas(),
+      ])
+      event.value = ev
+      matches.value = matchList
+      venueArenas.value = arenas
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
       if (bracketGenerated.value) activeTab.value = 'bracket'
@@ -196,6 +216,29 @@
     return 'open'
   }
 
+  async function toggleEventArena(arenaId) {
+    const current = [...(event.value?.arena_ids ?? [])]
+    const idx = current.indexOf(arenaId)
+    if (idx >= 0) {
+      if (current.length <= 1) return
+      current.splice(idx, 1)
+    } else {
+      current.push(arenaId)
+    }
+    await run(async () => {
+      event.value = await updateEventArenas(props.eventId, current)
+    }, 'Failed to update event lanes.')
+  }
+
+  async function changeMatchArena(match, arenaId) {
+    const value = arenaId || null
+    await run(async () => {
+      const updated = await updateMatchArena(match.match_id, value)
+      const i = matches.value.findIndex(m => m.match_id === match.match_id)
+      if (i >= 0) matches.value[i] = updated
+    }, 'Failed to update match lane.')
+  }
+
   async function selectMatch(match) {
     if (!match.player_1_id || !match.player_2_id) {
       error.value = 'Both players must be decided before this match can start.'
@@ -210,7 +253,7 @@
     busy.value = true
     try {
       const locked = await lockMatch(match.match_id, force)
-      emit('selectMatch', { match: locked, event: event.value })
+      emit('selectMatch', { match: locked, event: event.value, arenaLabel: arenaLabel(locked.arena_id) })
     } catch (e) {
       if (e?.response?.status === 423) {
         takeover.value = { match, lockedBy: e.response.data?.detail?.locked_by ?? 'another coach' }
@@ -306,6 +349,22 @@
         </template>
       </section>
 
+      <section class="section" v-if="venueArenas.length && !event.is_finished">
+        <h3 class="section-title">Lanes for this event</h3>
+        <p class="section-note">Choose which venue lanes are in use for this group.</p>
+        <div class="arena-checkboxes">
+          <label v-for="arena in venueArenas" :key="arena.id" class="arena-check">
+            <input
+              type="checkbox"
+              :checked="(event.arena_ids ?? []).includes(arena.id)"
+              :disabled="busy || ((event.arena_ids ?? []).includes(arena.id) && (event.arena_ids ?? []).length <= 1)"
+              @change="toggleEventArena(arena.id)"
+            />
+            {{ arena.label }}
+          </label>
+        </div>
+      </section>
+
       <!-- Swiss setup / matches -->
       <section class="section">
         <h3 class="section-title">Swiss Stage</h3>
@@ -343,7 +402,20 @@
               :class="matchStatus(match)"
               @click="selectMatch(match)"
             >
-              <span class="match-name">{{ matchLabel(match) }}</span>
+              <div class="match-row">
+                <span class="match-name">{{ matchLabel(match) }}</span>
+                <select
+                  v-if="eventArenaOptions.length"
+                  class="arena-select"
+                  :value="match.arena_id ?? ''"
+                  :disabled="busy || event.is_finished"
+                  @click.stop
+                  @change="changeMatchArena(match, $event.target.value)"
+                >
+                  <option value="">Lane…</option>
+                  <option v-for="a in eventArenaOptions" :key="a.id" :value="a.id">{{ a.label }}</option>
+                </select>
+              </div>
               <span class="match-status">
                 <template v-if="match.is_finished">{{ match.winner_id ? `Won: ${match.winner_id}` : 'Finished' }}</template>
                 <template v-else-if="match.is_locked">In use by {{ holderLabel(match.locked_by) }}</template>
@@ -395,7 +467,13 @@
       <!-- Bracket -->
       <section class="section" v-if="bracketGenerated && activeTab === 'bracket'">
         <h3 class="section-title">Tournament Bracket</h3>
-        <BracketView :matches="bracketMatches" @select="selectMatch" @updateRounds="changeMatchRounds" />
+        <BracketView
+          :matches="bracketMatches"
+          :arena-options="eventArenaOptions"
+          @select="selectMatch"
+          @updateRounds="changeMatchRounds"
+          @updateArena="changeMatchArena"
+        />
       </section>
 
       <button
@@ -486,6 +564,27 @@
   line-height: 1.4;
 }
 
+.section-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.arena-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.arena-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
 .section-title {
   margin: 0;
   font-size: 0.85rem;
@@ -537,6 +636,27 @@
 
 .match-item {
   cursor: pointer;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.match-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.arena-select {
+  flex-shrink: 0;
+  max-width: 140px;
+  font-size: 0.75rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-input);
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 .match-item:hover {
