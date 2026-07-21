@@ -14,13 +14,13 @@
     { text: '5', value: 5, color: 'orange' },
   ]
 
-  // A clutch (final throw only) scores 5, 6, 7 or 0. The clutch scores reuse the
-  // same six circles; the two left over are greyed out and non-functioning.
+  // A clutch scores Touch Clutch (6), Premier Clutch (7), or a miss (0). The
+  // clutch scores reuse the same six circles; the rest are greyed out.
   const clutchButtons = [
     { text: '6', value: 6, color: 'purple' },
-    { text: '5', value: 5, color: 'orange' },
-    { text: '0', value: 0, color: 'gray' },
     { text: '7', value: 7, color: 'green' },
+    { text: '0', value: 0, color: 'gray' },
+    { text: '-', value: 0, color: 'gray', disabled: true },
     { text: '-', value: 0, color: 'gray', disabled: true },
     { text: '-', value: 0, color: 'gray', disabled: true },
   ]

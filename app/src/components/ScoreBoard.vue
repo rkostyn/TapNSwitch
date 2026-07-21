@@ -98,7 +98,11 @@
   const player2Disabled = computed(() => throws2.value > throws1.value)
   const player1ClutchAvailable = computed(() => throws1.value === THROWS - 1)
   const player2ClutchAvailable = computed(() => throws2.value === THROWS - 1)
-  const gameOver = computed(() => roundComplete.value && currentRound.value === props.totalRounds)
+  // Best-of match: the game ends when a player clinches a majority of the
+  // rounds, or when every round has been played.
+  const gameOver = computed(() =>
+    roundComplete.value && (currentRound.value === props.totalRounds || clinched.value)
+  )
 
   // Alternating-throw rules only gate the live round; past rounds edit freely.
   // During a tie breaker a side locks once its throw for the current attempt is in.
@@ -132,6 +136,24 @@
 
   const sum = arr => arr.reduce((a, s) => a + (s ? s.value : 0), 0)
 
+  // Rounds won so far (the live round counts once it is complete). A majority
+  // clinches the best-of match — 3 of 5, 4 of 7, etc.
+  const clinchTarget = computed(() => Math.floor(props.totalRounds / 2) + 1)
+  const roundWins = computed(() => {
+    const rounds = [...completedRounds.value]
+    if (roundComplete.value) rounds.push({ scores1: scores1.value, scores2: scores2.value })
+    let p1 = 0, p2 = 0
+    for (const r of rounds) {
+      const t1 = sum(r.scores1), t2 = sum(r.scores2)
+      if (t1 > t2) p1++
+      else if (t2 > t1) p2++
+    }
+    return { p1, p2 }
+  })
+  const clinched = computed(() =>
+    roundWins.value.p1 >= clinchTarget.value || roundWins.value.p2 >= clinchTarget.value
+  )
+
   const allRoundRows = computed(() =>
     Array.from({ length: props.totalRounds }, (_, i) => {
       const roundNum = i + 1
@@ -151,11 +173,8 @@
 
   const overallWinner = computed(() => {
     if (!gameOver.value) return null
-    const last = { scores1: scores1.value, scores2: scores2.value }
-    const all = [...completedRounds.value, last]
-    const wins1 = all.filter(r => sum(r.scores1) > sum(r.scores2)).length
-    const wins2 = all.filter(r => sum(r.scores2) > sum(r.scores1)).length
-    return wins1 > wins2 ? props.player1Name : wins2 > wins1 ? props.player2Name : 'tie'
+    const { p1, p2 } = roundWins.value
+    return p1 > p2 ? props.player1Name : p2 > p1 ? props.player2Name : 'tie'
   })
 
   // --- Tie breaker -----------------------------------------------------------
