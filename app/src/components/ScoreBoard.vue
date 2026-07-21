@@ -478,6 +478,10 @@
   }
 
   function toggleSpectatorMode() {
+    if (!props.spectatorMode) {
+      selected.value = null
+      viewedRound.value = null
+    }
     emit('update:spectatorMode', !props.spectatorMode)
   }
 
@@ -490,6 +494,7 @@
   // Keyboard scoring: number keys 0–5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
   function handleKeydown(e) {
+    if (props.spectatorMode) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const el = e.target
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
@@ -511,13 +516,24 @@
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
       <div class="round-bar-actions">
         <button
+          v-if="!spectatorMode"
           type="button"
           class="display-mode-btn"
           :aria-pressed="spectatorMode"
           @click="toggleSpectatorMode"
         >
-          {{ spectatorMode ? 'Coach View' : 'TV Display' }}
+          Show on TV
         </button>
+        <button
+          v-else
+          type="button"
+          class="display-mode-btn coach-return-btn"
+          :aria-pressed="spectatorMode"
+          @click="toggleSpectatorMode"
+        >
+          Back to iPad Scoring
+        </button>
+        <p v-if="!spectatorMode" class="display-mode-note">AirPlay this view to show recorded scores only. Keep scoring on this iPad.</p>
       </div>
       <div aria-live="polite" aria-atomic="true" class="status-live-region">
         <span v-if="syncError" class="sync-error" role="alert">{{ syncError }}</span>
@@ -566,7 +582,7 @@
           <!-- Player names stay pinned above the (scrollable) score rows -->
           <div class="scoreboard-row scoreboard-head" role="row">
             <div class="col-header" role="columnheader">{{ leftName }}</div>
-            <div class="col-header round-col-label" role="columnheader">{{ showTiebreak ? '#' : 'Axe' }}</div>
+            <div v-if="!spectatorMode" class="col-header round-col-label" role="columnheader">{{ showTiebreak ? '#' : 'Axe' }}</div>
             <div class="col-header" role="columnheader">{{ rightName }}</div>
           </div>
 
@@ -575,47 +591,57 @@
               <!-- Left player cell -->
               <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }" role="cell">
                 <template v-if="leftScores[i-1] !== null">
-                  <button
-                    type="button"
-                    class="score-btn"
-                    :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
-                    :aria-label="scoreAriaLabel(leftName, i, leftScores[i-1])"
-                    @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)"
-                  >
+                  <span v-if="spectatorMode" class="score-readout">
                     {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
-                  </button>
-                  <button
-                    v-if="isSelected(sidesSwapped ? 2 : 1, i-1)"
-                    type="button"
-                    class="reset-cancel-btn"
-                    aria-label="Cancel score edit"
-                    @click="deselectScore"
-                  >✕</button>
+                  </span>
+                  <template v-else>
+                    <button
+                      type="button"
+                      class="score-btn"
+                      :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
+                      :aria-label="scoreAriaLabel(leftName, i, leftScores[i-1])"
+                      @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)"
+                    >
+                      {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
+                    </button>
+                    <button
+                      v-if="isSelected(sidesSwapped ? 2 : 1, i-1)"
+                      type="button"
+                      class="reset-cancel-btn"
+                      aria-label="Cancel score edit"
+                      @click="deselectScore"
+                    >✕</button>
+                  </template>
                 </template>
                 <template v-else><span aria-hidden="true">–</span></template>
               </div>
 
-              <div class="round-num" role="cell" aria-label="Throw {{ i }}">{{ i }}</div>
+              <div v-if="!spectatorMode" class="round-num" role="cell" :aria-label="`Throw ${i}`">{{ i }}</div>
 
               <!-- Right player cell -->
               <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }" role="cell">
                 <template v-if="rightScores[i-1] !== null">
-                  <button
-                    type="button"
-                    class="score-btn"
-                    :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
-                    :aria-label="scoreAriaLabel(rightName, i, rightScores[i-1])"
-                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)"
-                  >
+                  <span v-if="spectatorMode" class="score-readout">
                     {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
-                  </button>
-                  <button
-                    v-if="isSelected(sidesSwapped ? 1 : 2, i-1)"
-                    type="button"
-                    class="reset-cancel-btn"
-                    aria-label="Cancel score edit"
-                    @click="deselectScore"
-                  >✕</button>
+                  </span>
+                  <template v-else>
+                    <button
+                      type="button"
+                      class="score-btn"
+                      :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
+                      :aria-label="scoreAriaLabel(rightName, i, rightScores[i-1])"
+                      @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)"
+                    >
+                      {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
+                    </button>
+                    <button
+                      v-if="isSelected(sidesSwapped ? 1 : 2, i-1)"
+                      type="button"
+                      class="reset-cancel-btn"
+                      aria-label="Cancel score edit"
+                      @click="deselectScore"
+                    >✕</button>
+                  </template>
                 </template>
                 <template v-else><span aria-hidden="true">–</span></template>
               </div>
@@ -625,12 +651,22 @@
           <!-- Total stays pinned below the score rows -->
           <div class="scoreboard-row scoreboard-total" role="row">
             <div class="total-cell" role="cell">{{ total(leftScores) }}</div>
-            <div class="total-label" role="cell">Total</div>
+            <div v-if="!spectatorMode" class="total-label" role="cell">Total</div>
             <div class="total-cell" role="cell">{{ total(rightScores) }}</div>
           </div>
         </div>
 
         <div class="scoreboard-status-slot" aria-live="polite">
+          <template v-if="spectatorMode">
+            <span v-if="gameWinner" class="spectator-winner">{{ gameWinner }} wins</span>
+            <span v-else-if="tiebreakInProgress" class="spectator-status">Tie breaker</span>
+            <span v-else-if="!matchContext?.isFinished && !gameOver && !roundComplete" class="spectator-status">
+              <template v-if="player1Disabled">Waiting for {{ player2Name }}</template>
+              <template v-else-if="player2Disabled">Waiting for {{ player1Name }}</template>
+              <template v-else>Match in progress</template>
+            </span>
+          </template>
+          <template v-else>
           <button v-if="viewedRound" type="button" class="editing-banner" @click="viewRound(currentRound)">
             Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
           </button>
@@ -653,6 +689,7 @@
             <template v-else-if="player2Disabled">Waiting for {{ player1Name }}</template>
             <template v-else>Match in Progress</template>
           </span>
+          </template>
         </div>
       </div>
       </div>
@@ -663,12 +700,14 @@
     </div>
 
     <div class="results-section">
+      <template v-if="!spectatorMode">
       <button v-if="matchContext?.isFinished" type="button" class="new-game-btn" @click="backToEvent">
         Done Editing — Back to Event
       </button>
       <button v-else-if="gameOver && matchContext" type="button" class="next-round-btn" :disabled="finishing || tieUnresolved" @click="finishEventMatch">
         {{ finishing ? 'Finishing…' : tieUnresolved ? 'Drawn — settle the tie breaker first' : 'Finish Match' }}
       </button>
+      </template>
       <div class="results-table-wrap">
         <table class="results-table" aria-label="Round by round results">
           <thead>
@@ -682,7 +721,7 @@
                 :class="{ selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
               >
                 <button
-                  v-if="r.round <= currentRound"
+                  v-if="r.round <= currentRound && !spectatorMode"
                   type="button"
                   class="round-head-btn"
                   :aria-label="`View round ${r.round}`"
@@ -701,13 +740,13 @@
                 :class="{ winner: r.status === 'p1', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
               >
                 <button
-                  v-if="r.round <= currentRound"
+                  v-if="r.round <= currentRound && !spectatorMode"
                   type="button"
                   class="round-cell-btn"
                   :aria-label="roundCellLabel(r.round, player1Name, r.t1, r.status)"
                   @click="viewRound(r.round)"
                 >{{ r.t1 !== null ? r.t1 : '–' }}</button>
-                <span v-else aria-hidden="true">{{ r.t1 !== null ? r.t1 : '–' }}</span>
+                <span v-else>{{ r.t1 !== null ? r.t1 : '–' }}</span>
               </td>
             </tr>
             <tr>
@@ -718,13 +757,13 @@
                 :class="{ winner: r.status === 'p2', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
               >
                 <button
-                  v-if="r.round <= currentRound"
+                  v-if="r.round <= currentRound && !spectatorMode"
                   type="button"
                   class="round-cell-btn"
                   :aria-label="roundCellLabel(r.round, player2Name, r.t2, r.status)"
                   @click="viewRound(r.round)"
                 >{{ r.t2 !== null ? r.t2 : '–' }}</button>
-                <span v-else aria-hidden="true">{{ r.t2 !== null ? r.t2 : '–' }}</span>
+                <span v-else>{{ r.t2 !== null ? r.t2 : '–' }}</span>
               </td>
             </tr>
           </tbody>
@@ -775,6 +814,52 @@
   width: 100%;
   max-width: min(960px, 100%);
   flex: 1 1 auto;
+}
+
+.scoreboard-root.spectator-mode .scoreboard-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 48px);
+}
+
+.scoreboard-root.spectator-mode .scoreboard-status-slot {
+  min-height: 48px;
+}
+
+.display-mode-note {
+  margin: 0;
+  max-width: 360px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.coach-return-btn {
+  background: #065f46;
+  border-color: #059669;
+  color: #ecfdf5;
+}
+
+.score-readout {
+  font-size: calc(1.6rem * var(--score-scale));
+  font-weight: bold;
+  color: #e2e8f0;
+  line-height: 1;
+}
+
+.spectator-winner {
+  font-size: calc(1.4rem * var(--score-scale));
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #34d399;
+}
+
+.spectator-status {
+  font-size: calc(1rem * var(--score-scale));
+  font-weight: bold;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
 }
 
 .round-bar {
