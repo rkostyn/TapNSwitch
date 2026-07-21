@@ -29,10 +29,16 @@
 
 <template>
   <div class="tv-overlay" role="dialog" aria-label="TV score display">
+    <button type="button" class="coach-return-btn" aria-label="Back to iPad scoring" @click="emit('close')">
+      Back to Scoring
+    </button>
+
     <div class="tv-content">
-      <span v-if="eventName" class="event-banner">{{ eventName }}</span>
-      <span v-if="arenaLabel" class="lane-banner">{{ arenaLabel }}</span>
-      <span class="round-label">{{ roundTitle }}</span>
+      <header class="tv-header">
+        <span v-if="eventName" class="event-banner">{{ eventName }}</span>
+        <span v-if="arenaLabel" class="lane-banner">{{ arenaLabel }}</span>
+        <span class="round-label">{{ roundTitle }}</span>
+      </header>
 
       <div class="scoreboard-grid" aria-label="Current round scores">
         <div class="scoreboard-row scoreboard-head">
@@ -47,14 +53,14 @@
               <span v-if="leftScores[i - 1] !== null" class="score-readout">
                 {{ leftScores[i - 1].value }}<sup v-if="leftScores[i - 1].drop" class="drop-marker">d</sup>
               </span>
-              <span v-else aria-hidden="true">–</span>
+              <span v-else class="score-empty" aria-hidden="true">–</span>
             </div>
             <div class="round-num">{{ i }}</div>
             <div class="score-cell" :class="{ filled: rightScores[i - 1] !== null }">
               <span v-if="rightScores[i - 1] !== null" class="score-readout">
                 {{ rightScores[i - 1].value }}<sup v-if="rightScores[i - 1].drop" class="drop-marker">d</sup>
               </span>
-              <span v-else aria-hidden="true">–</span>
+              <span v-else class="score-empty" aria-hidden="true">–</span>
             </div>
           </div>
         </div>
@@ -74,7 +80,6 @@
           <template v-else-if="player2Disabled">Waiting for {{ player1Name }}</template>
           <template v-else>Match in progress</template>
         </span>
-        <span v-else class="spectator-status">Match in progress</span>
       </div>
 
       <div class="results-table-wrap">
@@ -102,8 +107,6 @@
         </table>
       </div>
     </div>
-
-    <button type="button" class="coach-return-btn" @click="emit('close')">Back to iPad Scoring</button>
   </div>
 </template>
 
@@ -113,27 +116,44 @@
   inset: 0;
   z-index: 200;
   background: #0f1117;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  --score-scale: 1.35;
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .tv-overlay {
+    --score-scale: 1.55;
+  }
+}
+
+.tv-content {
+  width: min(920px, 100%);
+  max-height: 100%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: clamp(16px, 3vw, 32px);
-  --score-scale: 1.4;
-  /* Visual layer only — coach can still tap scoring pads underneath on the iPad */
-  pointer-events: none;
+  gap: clamp(12px, 2.5vh, 24px);
 }
 
-.tv-content {
-  width: min(960px, 100%);
+.tv-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-  flex: 1;
+  gap: 6px;
+  text-align: center;
 }
 
 .event-banner {
-  font-size: calc(0.85rem * var(--score-scale));
+  font-size: calc(0.9rem * var(--score-scale));
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -141,7 +161,7 @@
 }
 
 .lane-banner {
-  font-size: calc(1rem * var(--score-scale));
+  font-size: calc(1.05rem * var(--score-scale));
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -149,30 +169,29 @@
 }
 
 .round-label {
-  font-size: calc(1.3rem * var(--score-scale));
+  font-size: calc(1.35rem * var(--score-scale));
   font-weight: bold;
   letter-spacing: 1px;
   color: #a78bfa;
-  margin-bottom: 12px;
 }
 
 .scoreboard-grid {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  width: min(520px, 100%);
+  width: min(560px, 100%);
 }
 
 .scoreboard-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+  gap: clamp(12px, 3vw, 24px);
   align-items: center;
   width: 100%;
 }
 
 .scoreboard-rows.tiebreak-scroll {
-  max-height: calc(260px * var(--score-scale));
+  max-height: min(280px, 38vh);
   overflow-y: auto;
 }
 
@@ -185,6 +204,9 @@
   text-align: center;
   padding-bottom: 4px;
   border-bottom: 1px solid #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .round-col-label {
@@ -197,27 +219,33 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
 }
 
-.score-cell.filled {
+.score-empty {
+  font-size: calc(1.5rem * var(--score-scale));
+  font-weight: bold;
+  color: #475569;
+}
+
+.score-cell.filled .score-readout {
   color: #e2e8f0;
 }
 
 .score-readout {
-  font-size: calc(1.7rem * var(--score-scale));
+  font-size: calc(1.75rem * var(--score-scale));
   font-weight: bold;
+  line-height: 1;
 }
 
 .round-num {
   text-align: center;
-  font-size: calc(0.85rem * var(--score-scale));
+  font-size: calc(0.9rem * var(--score-scale));
   color: #94a3b8;
 }
 
 .total-cell {
   text-align: center;
-  font-size: calc(1.8rem * var(--score-scale));
+  font-size: calc(1.9rem * var(--score-scale));
   font-weight: bold;
   color: #e2e8f0;
   padding-top: 6px;
@@ -242,14 +270,14 @@
 }
 
 .status-slot {
-  min-height: 48px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .spectator-winner {
-  font-size: calc(1.4rem * var(--score-scale));
+  font-size: calc(1.35rem * var(--score-scale));
   font-weight: bold;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -260,20 +288,22 @@
   font-size: calc(1rem * var(--score-scale));
   font-weight: bold;
   color: #94a3b8;
+  letter-spacing: 0.5px;
 }
 
 .results-table-wrap {
-  max-width: 100%;
+  width: 100%;
   overflow-x: auto;
 }
 
 .results-table {
+  width: 100%;
   border-collapse: collapse;
-  font-size: calc(1.15rem * var(--score-scale));
+  font-size: calc(1.1rem * var(--score-scale));
 }
 
 .results-table .round-head {
-  padding: 10px 24px;
+  padding: 10px clamp(12px, 3vw, 28px);
   text-align: center;
   border-bottom: 2px solid #8b5cf6;
   color: #a78bfa;
@@ -281,7 +311,7 @@
 }
 
 .results-table .player-head {
-  padding: 10px 16px;
+  padding: 10px 12px;
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -294,7 +324,7 @@
 }
 
 .results-table td {
-  padding: 10px 20px;
+  padding: 10px clamp(10px, 2.5vw, 24px);
   text-align: center;
   border-bottom: 1px solid #1e293b;
   color: #cbd5e1;
@@ -308,20 +338,20 @@
 
 .coach-return-btn {
   position: fixed;
-  top: 12px;
-  right: 12px;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
   z-index: 201;
-  min-height: var(--touch-min);
-  padding: 10px 16px;
-  font-size: 0.8rem;
+  min-height: 36px;
+  padding: 8px 14px;
+  font-size: 0.75rem;
   font-weight: bold;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  background: #065f46;
+  background: rgba(6, 95, 70, 0.92);
   border: 1px solid #059669;
   color: #ecfdf5;
   border-radius: 8px;
   cursor: pointer;
-  pointer-events: auto;
+  backdrop-filter: blur(4px);
 }
 </style>

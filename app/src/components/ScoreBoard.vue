@@ -14,7 +14,7 @@
   } from '../api'
 
   const props = defineProps(['player1Name', 'player2Name', 'totalRounds', 'matchContext'])
-  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone'])
+  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone', 'tvOverlayChange'])
 
   const tvOverlayOpen = ref(false)
 
@@ -494,6 +494,15 @@
     tvOverlayOpen.value = false
   }
 
+  watch(tvOverlayOpen, open => {
+    document.body.classList.toggle('tv-overlay-active', open)
+    emit('tvOverlayChange', open)
+  })
+
+  onUnmounted(() => {
+    document.body.classList.remove('tv-overlay-active')
+  })
+
   function roundCellLabel(roundNum, playerName, totalScore, status) {
     const score = totalScore !== null ? totalScore : 'not scored'
     const state = status === 'in-progress' ? 'in progress' : status
@@ -503,6 +512,7 @@
   // Keyboard scoring: number keys 0–5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
   function handleKeydown(e) {
+    if (tvOverlayOpen.value) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const el = e.target
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
@@ -532,7 +542,7 @@
         >
           Show on TV
         </button>
-        <p v-if="!tvOverlayOpen" class="display-mode-note">Layers a scores-only view for AirPlay. Keep scoring on this iPad — the number pads still work underneath.</p>
+        <p v-if="!tvOverlayOpen" class="display-mode-note">Tap before AirPlay — shows scores only on the TV. Tap Back on the iPad to score again.</p>
       </div>
       <div aria-live="polite" aria-atomic="true" class="status-live-region">
         <span v-if="syncError" class="sync-error" role="alert">{{ syncError }}</span>

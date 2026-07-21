@@ -11,6 +11,7 @@
   const player2Name = ref('Player 2')
   const matchContext = ref(null) // { matchId, eventId, player1Id, player2Id, eventName }
   const activeGroup = ref(null)
+  const tvOverlayOpen = ref(false)
 
   const showConfig = ref(true)
   const configRounds = ref(3)
@@ -78,7 +79,7 @@
 
 <template>
   <div class="page">
-    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
+    <AppHeader v-if="!tvOverlayOpen" ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">
       <ScoreBoard
@@ -87,6 +88,7 @@
         :player2Name="player2Name"
         :totalRounds="totalRounds"
         :matchContext="matchContext"
+        @tv-overlay-change="tvOverlayOpen = $event"
         @requestConfig="openConfig"
         @matchDone="onMatchDone"
       />
