@@ -11,7 +11,6 @@
   const player2Name = ref('Player 2')
   const matchContext = ref(null) // { matchId, eventId, player1Id, player2Id, eventName }
   const activeGroup = ref(null)
-  const spectatorMode = ref(false)
 
   const showConfig = ref(true)
   const configRounds = ref(3)
@@ -50,7 +49,7 @@
     nextTick(() => scoreboard.value.resetGame())
   }
 
-  function onSelectMatch({ match, event }) {
+  function onSelectMatch({ match, event, arenaLabel }) {
     player1Name.value = displayName(match.player_1_id)
     player2Name.value = displayName(match.player_2_id)
     totalRounds.value = match.rounds_per_match
@@ -60,6 +59,7 @@
       player1Id: match.player_1_id,
       player2Id: match.player_2_id,
       eventName: event?.event_name ?? '',
+      arenaLabel: arenaLabel ?? '',
       isFinished: match.is_finished,
     }
     showConfig.value = false
@@ -77,8 +77,8 @@
 </script>
 
 <template>
-  <div class="page" :class="{ 'spectator-page': spectatorMode }">
-    <AppHeader v-if="!spectatorMode" ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
+  <div class="page">
+    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">
       <ScoreBoard
@@ -87,7 +87,6 @@
         :player2Name="player2Name"
         :totalRounds="totalRounds"
         :matchContext="matchContext"
-        v-model:spectator-mode="spectatorMode"
         @requestConfig="openConfig"
         @matchDone="onMatchDone"
       />
@@ -147,11 +146,6 @@
   flex-direction: column;
   gap: 20px;
   flex: 1;
-}
-
-.spectator-page .content {
-  max-width: min(1600px, 100%);
-  padding: clamp(16px, 2vw, 32px);
 }
 
 .modal-group-note {
