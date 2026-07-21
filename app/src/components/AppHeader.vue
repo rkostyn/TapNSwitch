@@ -21,12 +21,16 @@
 
   const checkfrontGroups = ref([])
   const selectedGroupId = ref('')
+  const groupSearch = ref('')
   const groupsLoading = ref(false)
   const checkfrontStatus = ref(null)
   const syncLoading = ref(false)
   const syncMessage = ref('')
   let groupsPollTimer = null
   let syncMessageTimer = null
+  let groupSearchTimer = null
+
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 
   function groupLabel(event) {
     const code = event.checkfront_booking_code ? ` · ${event.checkfront_booking_code}` : ''
@@ -85,7 +89,8 @@
     if (!loggedInUser.value) return
     groupsLoading.value = true
     try {
-      const groups = await getActiveCheckfrontEvents()
+      const q = groupSearch.value.trim()
+      const groups = await getActiveCheckfrontEvents(q ? { q } : undefined)
       checkfrontGroups.value = groups
       if (selectedGroupId.value && !groups.some(g => g.event_id === selectedGroupId.value)) {
         selectedGroupId.value = ''
@@ -96,6 +101,11 @@
     } finally {
       groupsLoading.value = false
     }
+  }
+
+  function onGroupSearchInput() {
+    if (groupSearchTimer) clearTimeout(groupSearchTimer)
+    groupSearchTimer = setTimeout(loadCheckfrontGroups, 300)
   }
 
   function onGroupChange() {
@@ -128,6 +138,7 @@
       stopGroupsPoll()
       checkfrontGroups.value = []
       selectedGroupId.value = ''
+      groupSearch.value = ''
       checkfrontStatus.value = null
       syncMessage.value = ''
       emit('selectGroup', null)
@@ -144,6 +155,7 @@
   onUnmounted(() => {
     stopGroupsPoll()
     if (syncMessageTimer) clearTimeout(syncMessageTimer)
+    if (groupSearchTimer) clearTimeout(groupSearchTimer)
   })
 
   function openEvents(eventId = null) {
@@ -204,7 +216,15 @@
     <div class="header-left">
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
       <label v-if="loggedInUser" class="group-picker">
-        <span class="group-picker-label">Group</span>
+        <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
+        <input
+          class="group-search-input"
+          v-model="groupSearch"
+          type="search"
+          placeholder="Search booking or player…"
+          :disabled="groupsLoading"
+          @input="onGroupSearchInput"
+        />
         <select
           class="group-picker-select"
           v-model="selectedGroupId"
@@ -212,7 +232,7 @@
           :disabled="groupsLoading && checkfrontGroups.length === 0"
         >
           <option value="">
-            {{ checkfrontGroups.length ? 'Select Checkfront group…' : 'No Checkfront groups yet' }}
+            {{ groupsLoading ? 'Loading today…' : (checkfrontGroups.length ? 'Select booking…' : (groupSearch ? 'No matches today' : 'No bookings today')) }}
           </option>
           <option v-for="group in checkfrontGroups" :key="group.event_id" :value="group.event_id">
             {{ groupLabel(group) }}
@@ -324,6 +344,21 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.group-search-input {
+  width: min(200px, 28vw);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #334155;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.group-search-input::placeholder {
+  color: var(--color-muted);
 }
 
 .group-picker-label {
