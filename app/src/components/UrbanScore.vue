@@ -1,65 +1,117 @@
 <script setup>
-  import { ref, computed } from 'vue'
+  import { ref, computed, watch } from 'vue'
 
   const props = defineProps(['playerName', 'mirrored', 'disabled', 'clutchAvailable'])
   const emit = defineEmits(['score'])
 
-  const defaultButtons = [
-    { text: '1', score: '1', color: 'blue' },
-    { text: '3', score: '3', color: 'red' },
-    { text: '5', score: '5', color: 'purple' },
-    { text: '0', score: '0', color: 'orange' },
-    { text: 'Call Clutch', color: 'green' },
-    { text: 'Drop', score: 'Drop', color: 'gray' },
+  // A regular axe scores 1–5 or 0.
+  const regularButtons = [
+    { text: '2', value: 2, color: 'green' },
+    { text: '1', value: 1, color: 'blue' },
+    { text: '4', value: 4, color: 'purple' },
+    { text: '3', value: 3, color: 'red' },
+    { text: '0', value: 0, color: 'gray' },
+    { text: '5', value: 5, color: 'orange' },
   ]
 
+  // A clutch (final throw only) scores 5, 6, 7 or 0. The clutch scores reuse the
+  // same six circles; the two left over are greyed out and non-functioning.
   const clutchButtons = [
-    { text: 'Left Clutch', score: '7', color: 'green' },
-    { text: 'Right Clutch', score: '7', color: 'green' },
-    { text: '0', score: '0', color: 'orange' },
-    { text: 'Drop', score: 'Drop', color: 'gray' },
-    { text: 'Cancel', color: 'red' },
+    { text: '6', value: 6, color: 'purple' },
+    { text: '5', value: 5, color: 'orange' },
+    { text: '0', value: 0, color: 'gray' },
+    { text: '7', value: 7, color: 'green' },
+    { text: '-', value: 0, color: 'gray', disabled: true },
+    { text: '-', value: 0, color: 'gray', disabled: true },
   ]
 
-  const buttons = ref([...defaultButtons])
+  const clutchMode = ref(false)
+
+  // Clutch can only be called on the final throw; if it stops being available
+  // (the side switches, a different cell is selected) fall back to regular.
+  watch(() => props.clutchAvailable, (available) => { if (!available) clutchMode.value = false })
+
+  const activeButtons = computed(() => (clutchMode.value ? clutchButtons : regularButtons))
 
   const displayButtons = computed(() => {
-    if (!props.mirrored) return buttons.value
+    const src = activeButtons.value
+    if (!props.mirrored) return src
     const result = []
-    for (let i = 0; i < buttons.value.length; i += 2) {
-      const a = buttons.value[i], b = buttons.value[i + 1]
+    for (let i = 0; i < src.length; i += 2) {
+      const a = src[i], b = src[i + 1]
       result.push(...(b !== undefined ? [b, a] : [a]))
     }
     return result
   })
 
-  function urbanScore(score) {
-    if (score === 'Call Clutch') {
-      buttons.value = [...clutchButtons]
-    } else if (score === 'Cancel') {
-      buttons.value = [...defaultButtons]
-    } else {
-      const value = buttons.value.find(b => b.text === score)?.score ?? score
-      buttons.value = [...defaultButtons]
-      emit('score', value)
-    }
+  function toggleClutch() {
+    clutchMode.value = !clutchMode.value
+  }
+
+  function pick(item) {
+    if (item.disabled) return
+    const clutch = clutchMode.value
+    clutchMode.value = false
+    emit('score', { points: item.value, clutch })
   }
 </script>
 
 <template>
-  <div class="grid-container">
-    <div v-for="item in displayButtons" class="grid-child">
-      <button
-        class="button-circle"
-        :class="`color-${item.color}`"
-        :disabled="props.disabled || (item.text === 'Call Clutch' && !props.clutchAvailable)"
-        @click="urbanScore(item.text)"
-      >{{ item.text }}</button>
+  <div class="urban-score">
+    <div class="grid-container">
+      <div v-for="(item, idx) in displayButtons" :key="idx" class="grid-child">
+        <button
+          class="button-circle"
+          :class="`color-${item.color}`"
+          :disabled="props.disabled || item.disabled"
+          @click="pick(item)"
+        >{{ item.text }}</button>
+      </div>
     </div>
+
+    <button
+      class="clutch-btn"
+      :class="{ active: clutchMode }"
+      :disabled="props.disabled || !props.clutchAvailable"
+      @click="toggleClutch"
+    >{{ clutchMode ? 'Cancel ' : 'Clutch' }}</button>
   </div>
 </template>
 
 <style scoped>
+.urban-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.clutch-btn {
+  /* Spans the two columns of circles (2 × 106px + 20px gap) below it */
+  width: 232px;
+  max-width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 16px;
+  background: #047857;
+  color: #fff;
+  font-family: inherit;
+  font-size: 1.35rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+
+.clutch-btn.active {
+  background: #b91c1c;
+}
+
+.clutch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .grid-container {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -76,12 +128,12 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  width: 125px;
-  height: 125px;
+  width: 106px;
+  height: 106px;
   border-radius: 100%;
   border: none;
   font-family: inherit;
-  font-size: 1.55rem;
+  font-size: 1.32rem;
   font-weight: bold;
   color: #fff;
   cursor: pointer;
