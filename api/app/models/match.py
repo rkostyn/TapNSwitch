@@ -16,6 +16,10 @@ class MatchRoundsUpdate(BaseModel):
     rounds_per_match: int = Field(ge=1, le=10)
 
 
+class MatchArenaUpdate(BaseModel):
+    arena_id: str | None = Field(default=None, max_length=64)
+
+
 class Match(BaseModel):
     match_id: str
     event_id: Optional[str] = None
@@ -26,6 +30,7 @@ class Match(BaseModel):
     rounds_per_match: int = 2
     bracket_round: Optional[int] = None
     bracket_slot: Optional[int] = None
+    arena_id: Optional[str] = None
     winner_id: Optional[str] = None
     timestamp: datetime
     is_locked: bool = False

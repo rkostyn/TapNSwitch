@@ -169,11 +169,16 @@ class FakeCollection:
                 return _apply_projection(copy.deepcopy(doc), projection)
         return None
 
-    async def update_one(self, filter_query, update):
+    async def update_one(self, filter_query, update, upsert=False):
         for doc in self._docs:
             if _matches_filter(doc, filter_query):
                 _apply_update(doc, update)
                 return _UpdateResult(1, 1)
+        if upsert:
+            new_doc = copy.deepcopy(filter_query)
+            _apply_update(new_doc, update)
+            self._docs.append(new_doc)
+            return _UpdateResult(0, 1)
         return _UpdateResult(0, 0)
 
     async def delete_one(self, filter_query):

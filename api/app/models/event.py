@@ -36,6 +36,10 @@ class BracketGenerate(BaseModel):
     rounds_per_match: int = Field(default=3, ge=1, le=10)
 
 
+class EventArenasUpdate(BaseModel):
+    arena_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
 class Event(BaseModel):
     event_id: str
     event_name: Optional[str] = None
@@ -47,6 +51,7 @@ class Event(BaseModel):
     checkfront_booking_code: Optional[str] = None
     checkfront_session_key: Optional[str] = None
     checkfront_booking_ids: list[str] = []
+    arena_ids: list[str] = []
     start_timestamp: Optional[datetime] = None
     timestamp: datetime
     swiss_matches_per_player: int = 2

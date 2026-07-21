@@ -49,7 +49,7 @@
     nextTick(() => scoreboard.value.resetGame())
   }
 
-  function onSelectMatch({ match, event }) {
+  function onSelectMatch({ match, event, arenaLabel }) {
     player1Name.value = displayName(match.player_1_id)
     player2Name.value = displayName(match.player_2_id)
     totalRounds.value = match.rounds_per_match
@@ -59,6 +59,7 @@
       player1Id: match.player_1_id,
       player2Id: match.player_2_id,
       eventName: event?.event_name ?? '',
+      arenaLabel: arenaLabel ?? '',
       isFinished: match.is_finished,
     }
     showConfig.value = false

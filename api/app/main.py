@@ -32,6 +32,7 @@ from app.routes.match import router as match_router
 from app.routes.event import router as event_router
 from app.routes.player import router as player_router
 from app.routes.checkfront import router as checkfront_router
+from app.routes.venue import router as venue_router
 
 # Admin route
 from app.routes.admin import router as admin_router, login_router as admin_login_router
@@ -180,5 +181,6 @@ app.include_router(match_router)
 app.include_router(event_router)
 app.include_router(player_router)
 app.include_router(checkfront_router)
+app.include_router(venue_router)
 app.include_router(admin_login_router)
 app.include_router(admin_router)

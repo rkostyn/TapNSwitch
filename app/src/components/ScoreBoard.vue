@@ -428,6 +428,7 @@
   <div class="scoreboard-root">
     <div class="round-bar">
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
+      <span v-if="matchContext?.arenaLabel" class="arena-banner">{{ matchContext.arenaLabel }}</span>
       <span class="round-label">Round {{ displayRound }} of {{ totalRounds }}</span>
       <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
         Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
@@ -603,6 +604,14 @@
   text-transform: uppercase;
   letter-spacing: 2px;
   color: #34d399;
+}
+
+.arena-banner {
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #60a5fa;
 }
 
 .sync-error {

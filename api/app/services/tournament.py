@@ -214,6 +214,7 @@ def build_bracket_matches(
                 "locked_at": None,
                 "is_finished": False,
                 "finished_at": None,
+                "arena_id": None,
             }
             matches.append(doc)
             index[(rnd, slot)] = doc

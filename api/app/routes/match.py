@@ -4,7 +4,8 @@ from app.dependencies import get_mongo_client, get_current_user, rate_limit
 from app.repositories.match_repository import MatchRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.throw_repository import ThrowRepository
-from app.models.match import Match, MatchCreate, MatchRoundsUpdate
+from app.repositories.venue_repository import VenueRepository
+from app.models.match import Match, MatchCreate, MatchRoundsUpdate, MatchArenaUpdate
 from app.models.throw import ThrowsGet
 from app.services.tournament import compute_match_winner
 from app.services.match_results import update_match_winner
@@ -127,6 +128,33 @@ async def update_match_rounds(
     if existing.is_finished:
         raise HTTPException(status_code=423, detail="Match is finished")
     return await repo.update_rounds_per_match(match_id, body.rounds_per_match)
+
+
+@router.patch("/{match_id}/arena", response_model=Match)
+async def update_match_arena(
+    match_id: str,
+    body: MatchArenaUpdate,
+    current_user: str = Depends(get_current_user),
+    mongo_client: MongoClient = Depends(get_mongo_client),
+):
+    repo = MatchRepository(mongo_client)
+    existing = await repo.get_match(match_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if existing.is_finished:
+        raise HTTPException(status_code=423, detail="Match is finished")
+    if body.arena_id and existing.event_id:
+        event = await EventRepository(mongo_client).get_event(existing.event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        allowed = set(event.arena_ids or [])
+        venue_allowed = {arena.id for arena in await VenueRepository(mongo_client).get_arenas()}
+        if body.arena_id not in allowed or body.arena_id not in venue_allowed:
+            raise HTTPException(status_code=400, detail="Arena is not enabled for this event")
+    updated = await repo.update_arena_id(match_id, body.arena_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Match not found")
+    return updated
 
 
 @router.post("/{match_id}/lock", response_model=Match)

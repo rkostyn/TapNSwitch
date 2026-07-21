@@ -40,6 +40,7 @@ class EventRepository:
             "locked_at": None,
             "is_finished": False,
             "finished_at": None,
+            "arena_ids": [],
         }
         await collection.insert_one(doc)
         logger.info("Event created: %s", event_id)
@@ -80,6 +81,7 @@ class EventRepository:
             "locked_at": None,
             "is_finished": False,
             "finished_at": None,
+            "arena_ids": [],
         }
         await collection.insert_one(doc)
         logger.info("Checkfront event created: %s (booking %s)", event_id, booking_id)

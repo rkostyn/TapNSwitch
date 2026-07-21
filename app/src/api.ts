@@ -61,6 +61,12 @@ export interface ApiEvent {
   bracket_rounds_per_match: number
   bracket_generated_at: string | null
   is_finished: boolean
+  arena_ids?: string[]
+}
+
+export interface ApiArena {
+  id: string
+  label: string
 }
 
 export interface ApiMatch {
@@ -73,6 +79,7 @@ export interface ApiMatch {
   rounds_per_match: number
   bracket_round: number | null
   bracket_slot: number | null
+  arena_id: string | null
   winner_id: string | null
   is_locked: boolean
   locked_by: string | null
@@ -141,6 +148,26 @@ export async function getCheckfrontStatus(): Promise<CheckfrontStatus> {
 
 export async function syncCheckfrontBookings(): Promise<CheckfrontSyncResult> {
   const { data } = await http.post('/integrations/checkfront/sync')
+  return data
+}
+
+export async function getVenueArenas(): Promise<ApiArena[]> {
+  const { data } = await http.get('/venue/arenas')
+  return data.arenas
+}
+
+export async function saveVenueArenas(arenas: ApiArena[]): Promise<ApiArena[]> {
+  const { data } = await http.put('/venue/arenas', { arenas })
+  return data.arenas
+}
+
+export async function updateEventArenas(eventId: string, arenaIds: string[]): Promise<ApiEvent> {
+  const { data } = await http.put(`/event/${eventId}/arenas`, { arena_ids: arenaIds })
+  return data
+}
+
+export async function updateMatchArena(matchId: string, arenaId: string | null): Promise<ApiMatch> {
+  const { data } = await http.patch(`/match/${matchId}/arena`, { arena_id: arenaId })
   return data
 }
 

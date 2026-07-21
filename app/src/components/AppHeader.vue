@@ -4,6 +4,7 @@
   import { getCookie, setCookie, deleteCookie } from '../cookies'
   import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
+  import VenueArenasModal from './VenueArenasModal.vue'
 
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
@@ -17,6 +18,7 @@
   const loading = ref(false)
   const loggedInUser = ref(getCookie('username') ?? '')
   const showEvents = ref(false)
+  const showArenas = ref(false)
   const eventsInitialId = ref(null)
 
   const checkfrontGroups = ref([])
@@ -215,6 +217,7 @@
   <header class="app-header">
     <div class="header-left">
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
+      <button v-if="loggedInUser" class="auth-btn lanes-btn" @click="showArenas = true">Lanes</button>
       <label v-if="loggedInUser" class="group-picker">
         <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
         <input
@@ -273,6 +276,8 @@
     @close="onEventsClose"
     @selectMatch="emit('selectMatch', $event)"
   />
+
+  <VenueArenasModal v-if="showArenas" @close="showArenas = false" />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
