@@ -1,9 +1,10 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pymongo import ReturnDocument
 from app.db.mongo import MongoClient
 from app.models.event import Event, EventCreate
 from app.logger import get_logger
+from app.services.event_filters import event_on_date_mongo_filter, event_search_mongo_filter, merge_mongo_filters
 
 logger = get_logger(__name__)
 
@@ -100,12 +101,43 @@ class EventRepository:
             return None
         return Event(**docs[0])
 
-    async def get_active_checkfront_events(self) -> list[Event]:
+    async def get_active_checkfront_events(
+        self,
+        *,
+        booking_date: date | None = None,
+        search: str | None = None,
+    ) -> list[Event]:
         collection = await self._collection()
-        cursor = collection.find(
+        filters: list[dict] = [
             {"source": "checkfront", "is_finished": False},
-            {"_id": 0},
-        ).sort("timestamp", -1)
+        ]
+        if booking_date is not None:
+            filters.append(event_on_date_mongo_filter(booking_date))
+        search_filter = event_search_mongo_filter(search or "")
+        if search_filter:
+            filters.append(search_filter)
+        query = merge_mongo_filters(*filters)
+        cursor = collection.find(query, {"_id": 0}).sort("start_timestamp", 1)
+        return [Event(**doc) async for doc in cursor]
+
+    async def get_events_by_user(
+        self,
+        user_id: str,
+        *,
+        booking_date: date | None = None,
+        search: str | None = None,
+    ) -> list[Event]:
+        collection = await self._collection()
+        filters: list[dict] = [
+            {"$or": [{"created_by": user_id}, {"source": "checkfront"}]},
+        ]
+        if booking_date is not None:
+            filters.append(event_on_date_mongo_filter(booking_date))
+        search_filter = event_search_mongo_filter(search or "")
+        if search_filter:
+            filters.append(search_filter)
+        query = merge_mongo_filters(*filters)
+        cursor = collection.find(query, {"_id": 0}).sort("start_timestamp", 1)
         return [Event(**doc) async for doc in cursor]
 
     async def get_event(self, event_id: str) -> Event | None:
@@ -143,14 +175,6 @@ class EventRepository:
     async def get_events(self, limit: int = 50, sort_field: str = "timestamp") -> list[Event]:
         collection = await self._collection()
         cursor = collection.find({}, {"_id": 0}).sort(sort_field, -1).limit(limit)
-        return [Event(**doc) async for doc in cursor]
-
-    async def get_events_by_user(self, user_id: str) -> list[Event]:
-        collection = await self._collection()
-        cursor = collection.find(
-            {"$or": [{"created_by": user_id}, {"source": "checkfront"}]},
-            {"_id": 0},
-        ).sort("timestamp", -1)
         return [Event(**doc) async for doc in cursor]
 
     async def delete_event(self, event_id: str) -> bool:

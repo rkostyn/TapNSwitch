@@ -1,7 +1,8 @@
 import uuid
 from datetime import UTC, datetime
+from datetime import date as date_type
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.db.mongo import MongoClient
 from app.dependencies import get_mongo_client, get_current_user, rate_limit
 from app.repositories.event_repository import EventRepository
@@ -26,6 +27,7 @@ from app.services.tournament import (
     compute_swiss_standings,
 )
 from app.logger import get_logger
+from app.services.event_filters import venue_timezone
 
 logger = get_logger(__name__)
 
@@ -47,20 +49,32 @@ async def create_event(
 async def list_events(
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
+    date: date_type | None = Query(
+        default=None,
+        description="Booking date (YYYY-MM-DD) in venue timezone; defaults to today",
+    ),
+    q: str | None = Query(default=None, min_length=1, max_length=128, description="Search name, code, or player"),
 ):
-    logger.info("Listing events for user %s", current_user)
+    booking_date = date or datetime.now(venue_timezone()).date()
+    logger.info("Listing events for user %s on %s (q=%s)", current_user, booking_date, q)
     repo = EventRepository(mongo_client)
-    return await repo.get_events_by_user(current_user)
+    return await repo.get_events_by_user(current_user, booking_date=booking_date, search=q)
 
 
 @router.get("/checkfront/active", response_model=list[Event])
 async def list_active_checkfront_events(
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
+    date: date_type | None = Query(
+        default=None,
+        description="Booking date (YYYY-MM-DD) in venue timezone; defaults to today",
+    ),
+    q: str | None = Query(default=None, min_length=1, max_length=128, description="Search name, code, or player"),
 ):
-    """Open Checkfront-imported groups for today’s floor — used for the group picker."""
+    """Open Checkfront-imported groups for today's floor — used for the group picker."""
+    booking_date = date or datetime.now(venue_timezone()).date()
     repo = EventRepository(mongo_client)
-    return await repo.get_active_checkfront_events()
+    return await repo.get_active_checkfront_events(booking_date=booking_date, search=q)
 
 
 @router.get("/{event_id}", response_model=Event, dependencies=[Depends(rate_limit(60))])
