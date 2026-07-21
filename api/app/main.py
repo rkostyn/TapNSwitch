@@ -110,8 +110,8 @@ app = FastAPI(
         "email": "contact@yeetbox.net",
     },
     license_info={
-        "name": "GPLv3",
-        "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
+        "name": "AGPLv3",
+        "url": "https://github.com/rkostyn/TapNSwitch/blob/main/LICENSE",
     },
     lifespan=lifespan,
     swagger_ui_parameters = {
