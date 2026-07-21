@@ -1,5 +1,5 @@
 <script setup>
-  import { ref, computed, watch } from 'vue'
+  import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import UrbanScore from './UrbanScore.vue'
   import { GHOST_PLAYER_ID } from '../config'
   import {
@@ -36,30 +36,50 @@
   const syncError = ref('')
   const finishing = ref(false)
 
+  // Scroll container for the score lines — kept pinned to the bottom as tie-break
+  // attempts pile up past the visible five slots
+  const rowsEl = ref(null)
+
   const displayRound = computed(() => viewedRound.value ?? currentRound.value)
+
+  // The tie breaker keeps the familiar five-slot look; extra attempts pad past it
+  const padTiebreak = (arr) =>
+    arr.length >= THROWS ? arr : [...arr, ...Array(THROWS - arr.length).fill(null)]
+
   const displayScores1 = computed(() =>
-    viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores1 : scores1.value
+    showTiebreak.value ? padTiebreak(tiebreak.value.s1)
+    : viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores1
+    : scores1.value
   )
   const displayScores2 = computed(() =>
-    viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores2 : scores2.value
+    showTiebreak.value ? padTiebreak(tiebreak.value.s2)
+    : viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores2
+    : scores2.value
   )
 
-  // Sides swap every round; derive from the round on display
-  const sidesSwapped = computed(() => (displayRound.value - 1) % 2 === 1)
+  // Sides swap every round; the tie breaker keeps player 1 on the left throughout
+  const sidesSwapped = computed(() => showTiebreak.value ? false : (displayRound.value - 1) % 2 === 1)
+
+  // Rows in the score grid: five per normal round. The tie breaker shows five
+  // slots too, growing (and scrolling) only once sudden death runs past them.
+  const slotCount = computed(() =>
+    showTiebreak.value ? Math.max(THROWS, tiebreak.value.s1.length) : THROWS
+  )
 
   // Which player name/scores are on the left vs right panel for the displayed round
   const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
   const rightName = computed(() => sidesSwapped.value ? props.player1Name : props.player2Name)
   const leftScores = computed(() => sidesSwapped.value ? displayScores2.value : displayScores1.value)
   const rightScores = computed(() => sidesSwapped.value ? displayScores1.value : displayScores2.value)
-  const applyScoreLeft = (value) => routeScore(sidesSwapped.value ? 2 : 1, value)
-  const applyScoreRight = (value) => routeScore(sidesSwapped.value ? 1 : 2, value)
+  const applyScoreLeft = (payload) => routeScore(sidesSwapped.value ? 2 : 1, payload)
+  const applyScoreRight = (payload) => routeScore(sidesSwapped.value ? 1 : 2, payload)
 
   // The score panels do double duty: during a tie breaker they record the
-  // sudden-death throws; otherwise they score the round on display
-  function routeScore(player, value) {
-    if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, value)
-    else applyScore(player, value)
+  // sudden-death throws; otherwise they score the round on display.
+  // payload = { points: number, clutch: boolean }
+  function routeScore(player, payload) {
+    if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, payload)
+    else applyScore(player, payload)
   }
 
   // Solo (ghost) match: one side is the ghost, which scores 0 on every throw.
@@ -81,11 +101,17 @@
   const gameOver = computed(() => roundComplete.value && currentRound.value === props.totalRounds)
 
   // Alternating-throw rules only gate the live round; past rounds edit freely.
-  // During a tie breaker a side locks once its single throw is recorded.
-  const tbEntered = (player) => (player === 1 ? tiebreak.value?.s1 : tiebreak.value?.s2) !== null
+  // During a tie breaker a side locks once its throw for the current attempt is in.
+  const tbEntered = (player) => {
+    const tb = tiebreak.value
+    if (!tb) return false
+    const arr = player === 1 ? tb.s1 : tb.s2
+    return arr[arr.length - 1] !== null
+  }
 
   function sideDisabled(player) {
     if (player === ghostSide.value) return true // the ghost never throws by hand
+    if (selected.value?.player === player) return false // editing a placed score
     if (viewedRound.value) return false
     if (tiebreakActive.value) return tbEntered(player)
     return player === 1 ? player1Disabled.value : player2Disabled.value
@@ -144,35 +170,57 @@
 
   const tiebreakActive = computed(() => !!tiebreak.value && !tiebreak.value.winner)
 
+  // The tie breaker plays out in the main score grid rather than a separate box,
+  // unless the user has stepped away to review an earlier round.
+  const showTiebreak = computed(() => !!tiebreak.value && !viewedRound.value)
+  const tiebreakInProgress = computed(() => showTiebreak.value && !tiebreak.value.winner)
+
+  // The game's winner once it's over — the tie breaker's winner when the rounds
+  // ended level, otherwise whoever took more rounds. Null until the game ends.
+  const gameWinner = computed(() =>
+    tiebreak.value?.winner ?? (overallWinner.value !== 'tie' ? overallWinner.value : null)
+  )
+
+  // As sudden death adds slots, keep the newest attempt in view at the bottom
+  watch(slotCount, () => {
+    if (!showTiebreak.value) return
+    nextTick(() => {
+      if (rowsEl.value) rowsEl.value.scrollTop = rowsEl.value.scrollHeight
+    })
+  })
+
   // A tied game cannot be finished until the tie breaker settles it
   const tieUnresolved = computed(() =>
     gameOver.value && overallWinner.value === 'tie' && !tiebreak.value?.winner
   )
 
+  // Each attempt is its own one-slot round on the server, sequenced after the
+  // regular rounds. s1/s2 grow in lockstep, one entry per attempt.
   function tiebreakSeq() {
-    return props.totalRounds + tiebreak.value.attempt
+    return props.totalRounds + tiebreak.value.s1.length
   }
 
   function startTiebreak() {
-    tiebreak.value = { phase: 'bull', attempt: 1, s1: null, s2: null, missedClutchRounds: 0, winner: null }
+    tiebreak.value = { phase: 'bull', s1: [null], s2: [null], missedClutchRounds: 0, winner: null }
     ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
   }
 
-  function tiebreakScore(player, value) {
+  function tiebreakScore(player, payload) {
     const tb = tiebreak.value
     if (!tb || tb.winner) return
-    if ((player === 1 ? tb.s1 : tb.s2) !== null) return
-    const drop = value === 'Drop'
-    const entry = { value: drop ? 0 : parseInt(value), drop }
-    if (player === 1) tb.s1 = entry
-    else tb.s2 = entry
+    const arr = player === 1 ? tb.s1 : tb.s2
+    const idx = arr.length - 1
+    if (arr[idx] !== null) return
+    const entry = { value: payload.points, clutch: payload.clutch }
+    arr[idx] = entry
     syncEntry(entry, player, null, tiebreakSeq())
-    if (tb.s1 !== null && tb.s2 !== null) resolveTiebreakAttempt()
+    if (tb.s1[idx] !== null && tb.s2[idx] !== null) resolveTiebreakAttempt()
   }
 
   function resolveTiebreakAttempt() {
     const tb = tiebreak.value
-    const v1 = tb.s1.value, v2 = tb.s2.value
+    const idx = tb.s1.length - 1
+    const v1 = tb.s1[idx].value, v2 = tb.s2[idx].value
     if (v1 !== v2) {
       tb.winner = v1 > v2 ? props.player1Name : props.player2Name
       return
@@ -180,8 +228,8 @@
     if (tb.phase === 'bull') {
       // Both stuck their bulls — they may go up for clutch
       if (v1 === 5) tb.phase = 'clutch'
-    } else if (v1 === 7) {
-      // Both hit clutch — stay up for clutch
+    } else if (v1 > 0) {
+      // Both landed a clutch — stay up for clutch
       tb.missedClutchRounds = 0
     } else {
       tb.missedClutchRounds++
@@ -190,17 +238,15 @@
         tb.missedClutchRounds = 0
       }
     }
-    tb.attempt++
-    tb.s1 = null
-    tb.s2 = null
+    // Still tied — open a fresh slot for the next attempt
+    tb.s1.push(null)
+    tb.s2.push(null)
     ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
   }
 
-  function applyScore(player, value) {
-    const entry = value === 'Drop'
-      ? { value: 0, drop: true }
-      : (() => { const num = parseInt(value); return isNaN(num) ? null : { value: num, drop: false } })()
-    if (!entry) return
+  function applyScore(player, payload) {
+    if (!payload || typeof payload.points !== 'number') return
+    const entry = { value: payload.points, clutch: !!payload.clutch }
 
     const arr = player === 1 ? displayScores1.value : displayScores2.value
     let oldEntry = null
@@ -225,7 +271,7 @@
     const g = ghostSide.value
     const arr = g === 1 ? displayScores1.value : displayScores2.value
     if (arr[index] !== null) return
-    const entry = { value: 0, drop: false }
+    const entry = { value: 0, clutch: false }
     arr[index] = entry
     syncEntry(entry, g, null, displayRound.value)
   }
@@ -249,8 +295,8 @@
         matchId: matchId.value,
         eventId: ctx.eventId,
         points: entry.value,
-        isDrop: entry.drop,
-        clutchCalled: entry.value === 7,
+        isDrop: !!entry.drop,
+        clutchCalled: !!entry.clutch,
       })
     } catch (e) {
       syncError.value = 'Score was not saved to the server.'
@@ -403,6 +449,7 @@
 
   // Score cell helpers
   function selectScore(player, index) {
+    if (showTiebreak.value) return // tie-break throws aren't individually editable
     selected.value = { player, index }
   }
 
@@ -422,16 +469,29 @@
   function total(scores) {
     return scores.reduce((s, x) => s + (x ? x.value : 0), 0)
   }
+
+  // Keyboard scoring: number keys 0–5 record a regular throw for the left
+  // player, or the right player when the left side is locked (its turn is up).
+  function handleKeydown(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    const el = e.target
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+    if (!/^[0-5]$/.test(e.key)) return
+    const payload = { points: parseInt(e.key), clutch: false }
+    if (!leftDisabled.value) applyScoreLeft(payload)
+    else if (!rightDisabled.value) applyScoreRight(payload)
+    else return
+    e.preventDefault()
+  }
+
+  onMounted(() => window.addEventListener('keydown', handleKeydown))
+  onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 </script>
 
 <template>
   <div class="scoreboard-root">
     <div class="round-bar">
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
-      <span class="round-label">Round {{ displayRound }} of {{ totalRounds }}</span>
-      <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
-        Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
-      </button>
       <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
 
@@ -448,44 +508,79 @@
 
       <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }">
       <div class="scoreboard">
-        <h2 class="scoreboard-title">Scores</h2>
+        <span class="round-label scoreboard-round">
+          {{ showTiebreak ? 'Tie Breaker' : `Round ${displayRound} of ${totalRounds}` }}
+        </span>
 
         <div class="scoreboard-grid">
-          <div class="col-header">{{ leftName }}</div>
-          <div class="col-header round-col-label">Axe</div>
-          <div class="col-header">{{ rightName }}</div>
+          <!-- Player names stay pinned above the (scrollable) score rows -->
+          <div class="scoreboard-row scoreboard-head">
+            <div class="col-header">{{ leftName }}</div>
+            <div class="col-header round-col-label">{{ showTiebreak ? '#' : 'Axe' }}</div>
+            <div class="col-header">{{ rightName }}</div>
+          </div>
 
-          <template v-for="i in THROWS" :key="i">
-            <!-- Left player cell -->
-            <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }">
-              <template v-if="leftScores[i-1] !== null">
-                <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
-                  @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
-                  {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
-                </button>
-                <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
-              </template>
-              <template v-else>–</template>
+          <div ref="rowsEl" class="scoreboard-rows" :class="{ 'tiebreak-scroll': showTiebreak }">
+            <div class="scoreboard-row" v-for="i in slotCount" :key="i">
+              <!-- Left player cell -->
+              <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }">
+                <template v-if="leftScores[i-1] !== null">
+                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
+                    @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
+                    {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
+                  </button>
+                  <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                </template>
+                <template v-else>–</template>
+              </div>
+
+              <div class="round-num">{{ i }}</div>
+
+              <!-- Right player cell -->
+              <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }">
+                <template v-if="rightScores[i-1] !== null">
+                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
+                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
+                    {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
+                  </button>
+                  <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
+                </template>
+                <template v-else>–</template>
+              </div>
             </div>
+          </div>
 
-            <div class="round-num">{{ i }}</div>
+          <!-- Total stays pinned below the score rows -->
+          <div class="scoreboard-row scoreboard-total">
+            <div class="total-cell">{{ total(leftScores) }}</div>
+            <div class="total-label">Total</div>
+            <div class="total-cell">{{ total(rightScores) }}</div>
+          </div>
+        </div>
 
-            <!-- Right player cell -->
-            <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }">
-              <template v-if="rightScores[i-1] !== null">
-                <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
-                  @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
-                  {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
-                </button>
-                <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
-              </template>
-              <template v-else>–</template>
-            </div>
-          </template>
-
-          <div class="total-cell">{{ total(leftScores) }}</div>
-          <div class="total-label">Total</div>
-          <div class="total-cell">{{ total(rightScores) }}</div>
+        <div class="scoreboard-status-slot">
+          <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
+            Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
+          </button>
+          <span v-else-if="tiebreakInProgress" class="tiebreak-hint">
+            <strong>Sudden death — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }}.</strong>
+            <template v-if="tiebreak.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
+            <template v-else> Tap Clutch, then score 5, 6, 7 or 0. Three misses each drops back to bulls.</template>
+          </span>
+          <button v-else-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
+            Drawn — Start Tie Breaker
+          </button>
+          <button v-else-if="roundComplete && !gameOver && !matchContext?.isFinished" class="next-round-btn" @click="nextRound">
+            Round {{ currentRound }} complete — Start Round {{ currentRound + 1 }}
+          </button>
+          <button v-else-if="gameOver && !matchContext && !tieUnresolved" class="new-game-btn" @click="emit('requestConfig')">
+            {{ gameWinner ? `${gameWinner} wins — New Game` : 'New Game' }}
+          </button>
+          <span v-else-if="!matchContext?.isFinished && !gameOver && !roundComplete" class="match-in-progress">
+            <template v-if="player1Disabled">Waiting for {{ player2Name }}</template>
+            <template v-else-if="player2Disabled">Waiting for {{ player1Name }}</template>
+            <template v-else>Match in Progress</template>
+          </span>
         </div>
       </div>
       </div>
@@ -502,76 +597,43 @@
       <button v-else-if="gameOver && matchContext" class="next-round-btn" :disabled="finishing || tieUnresolved" @click="finishEventMatch">
         {{ finishing ? 'Finishing…' : tieUnresolved ? 'Drawn — settle the tie breaker first' : 'Finish Match' }}
       </button>
-      <button v-else-if="gameOver" class="new-game-btn" @click="emit('requestConfig')">New Game</button>
-      <button v-else-if="roundComplete" class="next-round-btn" @click="nextRound">
-        Round {{ currentRound }} complete — Start Round {{ currentRound + 1 }}
-      </button>
-      <span v-else class="match-in-progress">
-        <template v-if="player1Disabled">Waiting for {{ player2Name }}</template>
-        <template v-else-if="player2Disabled">Waiting for {{ player1Name }}</template>
-        <template v-else>Match in Progress</template>
-      </span>
-      <h3 class="results-title">Results</h3>
-      <table class="results-table">
-        <thead>
-          <tr>
-            <th>Round</th>
-            <th>{{ player1Name }}</th>
-            <th>{{ player2Name }}</th>
-            <th>Winner</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in allRoundRows"
-            :key="r.round"
-            :class="{ selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
-            @click="viewRound(r.round)"
-          >
-            <td>{{ r.round }}</td>
-            <td :class="{ winner: r.status === 'p1' }">{{ r.t1 !== null ? r.t1 : '–' }}</td>
-            <td :class="{ winner: r.status === 'p2' }">{{ r.t2 !== null ? r.t2 : '–' }}</td>
-            <td>
-              <span v-if="r.status === 'p1'" class="win-badge p1">{{ player1Name }}</span>
-              <span v-else-if="r.status === 'p2'" class="win-badge p2">{{ player2Name }}</span>
-              <span v-else-if="r.status === 'tie'" class="win-badge tie">Tie</span>
-              <span v-else-if="r.status === 'in-progress'" class="win-badge in-progress">In Progress</span>
-              <span v-else class="win-badge pending">–</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div v-if="gameOver && !tiebreak" class="overall-winner" :class="{ draw: overallWinner === 'tie' }">
-        <span v-if="overallWinner === 'tie'">It's a draw!</span>
-        <span v-else>{{ overallWinner }} wins the game!</span>
+      <div class="results-table-wrap">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th class="corner"></th>
+              <th
+                v-for="r in allRoundRows"
+                :key="r.round"
+                class="round-head"
+                :class="{ selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
+                @click="viewRound(r.round)"
+              >Round {{ r.round }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th class="player-head">{{ player1Name }}</th>
+              <td
+                v-for="r in allRoundRows"
+                :key="r.round"
+                :class="{ winner: r.status === 'p1', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
+                @click="viewRound(r.round)"
+              >{{ r.t1 !== null ? r.t1 : '–' }}</td>
+            </tr>
+            <tr>
+              <th class="player-head">{{ player2Name }}</th>
+              <td
+                v-for="r in allRoundRows"
+                :key="r.round"
+                :class="{ winner: r.status === 'p2', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
+                @click="viewRound(r.round)"
+              >{{ r.t2 !== null ? r.t2 : '–' }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <button v-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
-        Start Tie Breaker
-      </button>
-
-      <div v-if="tiebreak" class="tiebreak-box">
-        <template v-if="!tiebreak.winner">
-          <h3 class="results-title">
-            Tie Breaker — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }} · Throw {{ tiebreak.attempt }}
-          </h3>
-          <p class="tiebreak-hint">
-            <template v-if="tiebreak.phase === 'bull'">One throw each, scored with the regular buttons. If both stick a bull (5), they go up for clutch.</template>
-            <template v-else>One throw each — call clutch on the regular buttons. Three misses in a row sends it back down to bulls.</template>
-          </p>
-          <div class="tiebreak-grid">
-            <div class="tiebreak-side" v-for="player in [1, 2]" :key="player">
-              <span class="tiebreak-name">{{ player === 1 ? player1Name : player2Name }}</span>
-              <span v-if="(player === 1 ? tiebreak.s1 : tiebreak.s2) !== null" class="tiebreak-score">
-                {{ (player === 1 ? tiebreak.s1 : tiebreak.s2).value }}<sup v-if="(player === 1 ? tiebreak.s1 : tiebreak.s2).drop" class="drop-marker">d</sup>
-              </span>
-              <span v-else class="tiebreak-waiting">waiting…</span>
-            </div>
-          </div>
-        </template>
-        <div v-else class="overall-winner">{{ tiebreak.winner }} wins the tie breaker!</div>
-      </div>
     </div>
   </div>
 </template>
@@ -595,6 +657,26 @@
   font-weight: bold;
   letter-spacing: 1px;
   color: #a78bfa;
+}
+
+.scoreboard-round {
+  margin-bottom: 40px;
+}
+
+/* Fixed-height slot keeps the panel height constant whether the status shows
+   the "Match in Progress" text, the editing button, or nothing at all — so the
+   score pads don't shift when it changes. */
+.scoreboard-status-slot {
+  margin-top: 40px;
+  margin-bottom: 20px;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scoreboard-status-slot .match-in-progress {
+  padding: 0;
 }
 
 .event-banner {
@@ -625,16 +707,17 @@
   cursor: pointer;
 }
 
-.results-table tr.selectable {
+.results-table .selectable {
   cursor: pointer;
 }
 
-.results-table tr.selectable:hover td {
+.results-table .selectable:hover {
   background: #1e293b;
 }
 
-.results-table tr.viewing td {
-  background: #3b2800;
+.results-table .viewing {
+  outline: 2px solid #eab308;
+  outline-offset: -2px;
 }
 
 .app-layout {
@@ -677,8 +760,8 @@
 }
 
 .panel-scores {
-  flex: 0 0 500px;
-  width: 500px;
+  flex: 0 0 425px;
+  width: 425px;
 }
 
 /* iPads are the primary target: portrait iPads (and phones) get the tabbed
@@ -720,21 +803,38 @@
   box-sizing: border-box;
 }
 
-.scoreboard-title {
-  font-size: 1.1rem;
-  font-weight: bold;
-  margin: 0 0 16px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  color: #a78bfa;
+.scoreboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
 }
 
-.scoreboard-grid {
+/* Header, each score line, and the total share one column template so their
+   columns line up even though they're separate rows (the score lines scroll
+   between the pinned header and total). Fixed middle column keeps the three
+   aligned regardless of their differing middle content (Axe / # / Total). */
+.scoreboard-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 6px 24px;
+  grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
+  gap: 20px;
   align-items: center;
   width: 100%;
+}
+
+.scoreboard-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+/* Tie breaker: cap the scrollable score lines at five rows (5 × 40px + 4 × 5px
+   gap) so a sixth-plus sudden-death attempt scrolls without moving the pinned
+   header/total or nudging the score pads. */
+.scoreboard-rows.tiebreak-scroll {
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .col-header {
@@ -893,24 +993,43 @@
   margin: 0;
 }
 
-.results-table {
-  border-collapse: collapse;
-  min-width: 320px;
-  font-size: 1rem;
+.results-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-.results-table th {
-  padding: 8px 20px;
+.results-table {
+  border-collapse: collapse;
+  font-size: 1.15rem;
+}
+
+/* Round-number column headers across the top */
+.results-table .round-head {
+  padding: 12px 42px;
   text-align: center;
   border-bottom: 2px solid #8b5cf6;
-  text-transform: uppercase;
-  font-size: 0.8rem;
-  letter-spacing: 1px;
+  font-size: 1.25rem;
   color: #a78bfa;
+  white-space: nowrap;
+}
+
+/* Player-name row headers down the left */
+.results-table .player-head {
+  padding: 12px 22px;
+  text-align: left;
+  font-size: 0.98rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.results-table .corner {
+  border-bottom: 2px solid #8b5cf6;
 }
 
 .results-table td {
-  padding: 8px 20px;
+  padding: 12px 32px;
   text-align: center;
   border-bottom: 1px solid #1e293b;
   color: #cbd5e1;
@@ -918,22 +1037,9 @@
 
 .results-table td.winner {
   font-weight: bold;
-  color: #34d399;
+  color: #6ee7b7;
+  background: #064e3b;
 }
-
-.win-badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: bold;
-}
-
-.win-badge.p1 { background: #1e3a5f; color: #93c5fd; }
-.win-badge.p2 { background: #3b1212; color: #fca5a5; }
-.win-badge.tie { background: #1e293b; color: #94a3b8; }
-.win-badge.in-progress { background: #3b2800; color: #fbbf24; }
-.win-badge.pending { background: none; color: #334155; }
 
 .overall-winner {
   font-size: 1.6rem;
@@ -947,66 +1053,12 @@
   background: #022c22;
 }
 
-.overall-winner.draw {
-  color: #fbbf24;
-  border-color: #b45309;
-  background: #3b2800;
-}
-
-.tiebreak-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border: 2px solid #eab308;
-  border-radius: 12px;
-  background: #1c1503;
-  width: 100%;
-  max-width: 520px;
-  box-sizing: border-box;
-}
-
 .tiebreak-hint {
   margin: 0;
+  max-width: 340px;
   font-size: 0.85rem;
   color: #fbbf24;
   text-align: center;
-}
-
-.tiebreak-grid {
-  display: flex;
-  gap: 24px;
-  width: 100%;
-  justify-content: center;
-}
-
-.tiebreak-side {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.tiebreak-name {
-  font-weight: bold;
-  color: #e2e8f0;
-  text-transform: uppercase;
-  font-size: 0.85rem;
-  letter-spacing: 1px;
-}
-
-.tiebreak-score {
-  font-size: 2rem;
-  font-weight: bold;
-  color: #34d399;
-}
-
-.tiebreak-waiting {
-  font-size: 1rem;
-  color: #64748b;
-  font-style: italic;
 }
 
 .new-game-btn {
