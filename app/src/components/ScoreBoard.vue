@@ -1,7 +1,6 @@
 <script setup>
   import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import UrbanScore from './UrbanScore.vue'
-  import TvScoreOverlay from './TvScoreOverlay.vue'
   import { GHOST_PLAYER_ID } from '../config'
   import {
     startRound as apiStartRound,
@@ -14,9 +13,7 @@
   } from '../api'
 
   const props = defineProps(['player1Name', 'player2Name', 'totalRounds', 'matchContext'])
-  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone', 'tvOverlayChange'])
-
-  const tvOverlayOpen = ref(false)
+  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone'])
 
   const THROWS = 5
 
@@ -44,10 +41,6 @@
   const rowsEl = ref(null)
 
   const displayRound = computed(() => viewedRound.value ?? currentRound.value)
-
-  const roundTitle = computed(() =>
-    showTiebreak.value ? 'Tie Breaker' : `Round ${displayRound.value} of ${props.totalRounds}`
-  )
 
   // The tie breaker keeps the familiar five-slot look; extra attempts pad past it
   const padTiebreak = (arr) =>
@@ -477,42 +470,9 @@
     return scores.reduce((s, x) => s + (x ? x.value : 0), 0)
   }
 
-  function scoreAriaLabel(playerName, throwNum, entry) {
-    if (!entry) return `${playerName}, throw ${throwNum}, no score yet`
-    const clutch = entry.clutch ? ', clutch' : ''
-    const drop = entry.drop ? ', drop' : ''
-    return `${playerName}, throw ${throwNum}, score ${entry.value}${clutch}${drop}`
-  }
-
-  function openTvOverlay() {
-    selected.value = null
-    viewedRound.value = null
-    tvOverlayOpen.value = true
-  }
-
-  function closeTvOverlay() {
-    tvOverlayOpen.value = false
-  }
-
-  watch(tvOverlayOpen, open => {
-    document.body.classList.toggle('tv-overlay-active', open)
-    emit('tvOverlayChange', open)
-  })
-
-  onUnmounted(() => {
-    document.body.classList.remove('tv-overlay-active')
-  })
-
-  function roundCellLabel(roundNum, playerName, totalScore, status) {
-    const score = totalScore !== null ? totalScore : 'not scored'
-    const state = status === 'in-progress' ? 'in progress' : status
-    return `Round ${roundNum}, ${playerName}, ${score}, ${state}`
-  }
-
   // Keyboard scoring: number keys 0–5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
   function handleKeydown(e) {
-    if (tvOverlayOpen.value) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const el = e.target
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
@@ -533,128 +493,74 @@
     <div class="round-bar">
       <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
       <span v-if="matchContext?.arenaLabel" class="lane-banner">{{ matchContext.arenaLabel }}</span>
-      <div class="round-bar-actions">
-        <button
-          v-if="!tvOverlayOpen"
-          type="button"
-          class="display-mode-btn"
-          @click="openTvOverlay"
-        >
-          Show on TV
-        </button>
-        <p v-if="!tvOverlayOpen" class="display-mode-note">Tap before AirPlay — shows scores only on the TV. Tap Back on the iPad to score again.</p>
-      </div>
-      <div aria-live="polite" aria-atomic="true" class="status-live-region">
-        <span v-if="syncError" class="sync-error" role="alert">{{ syncError }}</span>
-      </div>
+      <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
 
-    <div class="tab-bar" role="tablist" aria-label="Scoring panels">
-      <button
-        type="button"
-        role="tab"
-        class="tab-btn"
-        :class="{ active: activeTab === 'p1' }"
-        :aria-selected="activeTab === 'p1'"
-        @click="activeTab = 'p1'"
-      >{{ leftName }}</button>
-      <button
-        type="button"
-        role="tab"
-        class="tab-btn"
-        :class="{ active: activeTab === 'scores' }"
-        :aria-selected="activeTab === 'scores'"
-        @click="activeTab = 'scores'"
-      >Scores</button>
-      <button
-        type="button"
-        role="tab"
-        class="tab-btn"
-        :class="{ active: activeTab === 'p2' }"
-        :aria-selected="activeTab === 'p2'"
-        @click="activeTab = 'p2'"
-      >{{ rightName }}</button>
+    <div class="tab-bar">
+      <button class="tab-btn" :class="{ active: activeTab === 'p1' }" @click="activeTab = 'p1'">{{ leftName }}</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'scores' }" @click="activeTab = 'scores'">Scores</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'p2' }" @click="activeTab = 'p2'">{{ rightName }}</button>
     </div>
 
     <div class="app-layout">
-      <div class="tab-panel panel-p1" :class="{ active: activeTab === 'p1' }" role="tabpanel">
+      <div class="tab-panel panel-p1" :class="{ active: activeTab === 'p1' }">
         <UrbanScore :playerName="leftName" :disabled="leftDisabled" :clutchAvailable="leftClutchAvailable" @score="applyScoreLeft" />
       </div>
 
-      <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }" role="tabpanel" aria-label="Live scores">
+      <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }">
       <div class="scoreboard">
-        <span class="round-label scoreboard-round">{{ roundTitle }}</span>
+        <span class="round-label scoreboard-round">
+          {{ showTiebreak ? 'Tie Breaker' : `Round ${displayRound} of ${totalRounds}` }}
+        </span>
 
-        <div class="scoreboard-grid" role="table" aria-label="Current round scores">
+        <div class="scoreboard-grid">
           <!-- Player names stay pinned above the (scrollable) score rows -->
-          <div class="scoreboard-row scoreboard-head" role="row">
-            <div class="col-header" role="columnheader">{{ leftName }}</div>
-            <div class="col-header round-col-label" role="columnheader">{{ showTiebreak ? '#' : 'Axe' }}</div>
-            <div class="col-header" role="columnheader">{{ rightName }}</div>
+          <div class="scoreboard-row scoreboard-head">
+            <div class="col-header">{{ leftName }}</div>
+            <div class="col-header round-col-label">{{ showTiebreak ? '#' : 'Axe' }}</div>
+            <div class="col-header">{{ rightName }}</div>
           </div>
 
           <div ref="rowsEl" class="scoreboard-rows" :class="{ 'tiebreak-scroll': showTiebreak }">
-            <div class="scoreboard-row" v-for="i in slotCount" :key="i" role="row">
+            <div class="scoreboard-row" v-for="i in slotCount" :key="i">
               <!-- Left player cell -->
-              <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }" role="cell">
+              <div class="score-cell" :class="{ filled: leftScores[i-1] !== null }">
                 <template v-if="leftScores[i-1] !== null">
-                  <button
-                    type="button"
-                    class="score-btn"
-                    :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
-                    :aria-label="scoreAriaLabel(leftName, i, leftScores[i-1])"
-                    @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)"
-                  >
+                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
+                    @click="!isSelected(sidesSwapped ? 2 : 1, i-1) && selectScore(sidesSwapped ? 2 : 1, i-1)">
                     {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
                   </button>
-                  <button
-                    v-if="isSelected(sidesSwapped ? 2 : 1, i-1)"
-                    type="button"
-                    class="reset-cancel-btn"
-                    aria-label="Cancel score edit"
-                    @click="deselectScore"
-                  >✕</button>
+                  <button v-if="isSelected(sidesSwapped ? 2 : 1, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
                 </template>
-                <template v-else><span aria-hidden="true">–</span></template>
+                <template v-else>–</template>
               </div>
 
-              <div class="round-num" role="cell" :aria-label="`Throw ${i}`">{{ i }}</div>
+              <div class="round-num">{{ i }}</div>
 
               <!-- Right player cell -->
-              <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }" role="cell">
+              <div class="score-cell" :class="{ filled: rightScores[i-1] !== null }">
                 <template v-if="rightScores[i-1] !== null">
-                  <button
-                    type="button"
-                    class="score-btn"
-                    :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
-                    :aria-label="scoreAriaLabel(rightName, i, rightScores[i-1])"
-                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)"
-                  >
+                  <button class="score-btn" :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
+                    @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)">
                     {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
                   </button>
-                  <button
-                    v-if="isSelected(sidesSwapped ? 1 : 2, i-1)"
-                    type="button"
-                    class="reset-cancel-btn"
-                    aria-label="Cancel score edit"
-                    @click="deselectScore"
-                  >✕</button>
+                  <button v-if="isSelected(sidesSwapped ? 1 : 2, i-1)" class="reset-cancel-btn" @click="deselectScore">✕</button>
                 </template>
-                <template v-else><span aria-hidden="true">–</span></template>
+                <template v-else>–</template>
               </div>
             </div>
           </div>
 
           <!-- Total stays pinned below the score rows -->
-          <div class="scoreboard-row scoreboard-total" role="row">
-            <div class="total-cell" role="cell">{{ total(leftScores) }}</div>
-            <div class="total-label" role="cell">Total</div>
-            <div class="total-cell" role="cell">{{ total(rightScores) }}</div>
+          <div class="scoreboard-row scoreboard-total">
+            <div class="total-cell">{{ total(leftScores) }}</div>
+            <div class="total-label">Total</div>
+            <div class="total-cell">{{ total(rightScores) }}</div>
           </div>
         </div>
 
-        <div class="scoreboard-status-slot" aria-live="polite">
-          <button v-if="viewedRound" type="button" class="editing-banner" @click="viewRound(currentRound)">
+        <div class="scoreboard-status-slot">
+          <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
             Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
           </button>
           <span v-else-if="tiebreakInProgress" class="tiebreak-hint">
@@ -662,13 +568,13 @@
             <template v-if="tiebreak.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
             <template v-else> Tap Clutch, then score 5, 6, 7 or 0. Three misses each drops back to bulls.</template>
           </span>
-          <button v-else-if="needsTiebreak && !tiebreak" type="button" class="next-round-btn" @click="startTiebreak">
+          <button v-else-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
             Drawn — Start Tie Breaker
           </button>
-          <button v-else-if="roundComplete && !gameOver && !matchContext?.isFinished" type="button" class="next-round-btn" @click="nextRound">
+          <button v-else-if="roundComplete && !gameOver && !matchContext?.isFinished" class="next-round-btn" @click="nextRound">
             Round {{ currentRound }} complete — Start Round {{ currentRound + 1 }}
           </button>
-          <button v-else-if="gameOver && !matchContext && !tieUnresolved" type="button" class="new-game-btn" @click="emit('requestConfig')">
+          <button v-else-if="gameOver && !matchContext && !tieUnresolved" class="new-game-btn" @click="emit('requestConfig')">
             {{ gameWinner ? `${gameWinner} wins — New Game` : 'New Game' }}
           </button>
           <span v-else-if="!matchContext?.isFinished && !gameOver && !roundComplete" class="match-in-progress">
@@ -680,75 +586,50 @@
       </div>
       </div>
 
-      <div class="tab-panel panel-p2" :class="{ active: activeTab === 'p2' }" role="tabpanel">
+      <div class="tab-panel panel-p2" :class="{ active: activeTab === 'p2' }">
         <UrbanScore :playerName="rightName" :mirrored="true" :disabled="rightDisabled" :clutchAvailable="rightClutchAvailable" @score="applyScoreRight" />
       </div>
     </div>
 
     <div class="results-section">
-      <button v-if="matchContext?.isFinished" type="button" class="new-game-btn" @click="backToEvent">
+      <button v-if="matchContext?.isFinished" class="new-game-btn" @click="backToEvent">
         Done Editing — Back to Event
       </button>
-      <button v-else-if="gameOver && matchContext" type="button" class="next-round-btn" :disabled="finishing || tieUnresolved" @click="finishEventMatch">
+      <button v-else-if="gameOver && matchContext" class="next-round-btn" :disabled="finishing || tieUnresolved" @click="finishEventMatch">
         {{ finishing ? 'Finishing…' : tieUnresolved ? 'Drawn — settle the tie breaker first' : 'Finish Match' }}
       </button>
       <div class="results-table-wrap">
-        <table class="results-table" aria-label="Round by round results">
+        <table class="results-table">
           <thead>
             <tr>
-              <th class="corner" scope="col"></th>
+              <th class="corner"></th>
               <th
                 v-for="r in allRoundRows"
                 :key="r.round"
-                scope="col"
                 class="round-head"
                 :class="{ selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
-              >
-                <button
-                  v-if="r.round <= currentRound"
-                  type="button"
-                  class="round-head-btn"
-                  :aria-label="`View round ${r.round}`"
-                  @click="viewRound(r.round)"
-                >Round {{ r.round }}</button>
-                <span v-else>Round {{ r.round }}</span>
-              </th>
+                @click="viewRound(r.round)"
+              >Round {{ r.round }}</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <th class="player-head" scope="row">{{ player1Name }}</th>
+              <th class="player-head">{{ player1Name }}</th>
               <td
                 v-for="r in allRoundRows"
                 :key="r.round"
                 :class="{ winner: r.status === 'p1', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
-              >
-                <button
-                  v-if="r.round <= currentRound"
-                  type="button"
-                  class="round-cell-btn"
-                  :aria-label="roundCellLabel(r.round, player1Name, r.t1, r.status)"
-                  @click="viewRound(r.round)"
-                >{{ r.t1 !== null ? r.t1 : '–' }}</button>
-                <span v-else aria-hidden="true">{{ r.t1 !== null ? r.t1 : '–' }}</span>
-              </td>
+                @click="viewRound(r.round)"
+              >{{ r.t1 !== null ? r.t1 : '–' }}</td>
             </tr>
             <tr>
-              <th class="player-head" scope="row">{{ player2Name }}</th>
+              <th class="player-head">{{ player2Name }}</th>
               <td
                 v-for="r in allRoundRows"
                 :key="r.round"
                 :class="{ winner: r.status === 'p2', selectable: r.round <= currentRound, viewing: r.round === displayRound && viewedRound }"
-              >
-                <button
-                  v-if="r.round <= currentRound"
-                  type="button"
-                  class="round-cell-btn"
-                  :aria-label="roundCellLabel(r.round, player2Name, r.t2, r.status)"
-                  @click="viewRound(r.round)"
-                >{{ r.t2 !== null ? r.t2 : '–' }}</button>
-                <span v-else aria-hidden="true">{{ r.t2 !== null ? r.t2 : '–' }}</span>
-              </td>
+                @click="viewRound(r.round)"
+              >{{ r.t2 !== null ? r.t2 : '–' }}</td>
             </tr>
           </tbody>
         </table>
@@ -756,64 +637,13 @@
 
     </div>
   </div>
-
-  <Teleport to="body">
-    <TvScoreOverlay
-      v-if="tvOverlayOpen"
-      :event-name="matchContext?.eventName"
-      :arena-label="matchContext?.arenaLabel"
-      :round-title="roundTitle"
-      :left-name="leftName"
-      :right-name="rightName"
-      :player1-name="player1Name"
-      :player2-name="player2Name"
-      :left-scores="leftScores"
-      :right-scores="rightScores"
-      :slot-count="slotCount"
-      :show-tiebreak="showTiebreak"
-      :left-total="total(leftScores)"
-      :right-total="total(rightScores)"
-      :game-winner="gameWinner"
-      :tiebreak-in-progress="tiebreakInProgress"
-      :player1-disabled="player1Disabled"
-      :player2-disabled="player2Disabled"
-      :game-over="gameOver"
-      :round-complete="roundComplete"
-      :match-finished="!!matchContext?.isFinished"
-      :all-round-rows="allRoundRows"
-      :current-round="currentRound"
-      @close="closeTvOverlay"
-    />
-  </Teleport>
 </template>
 
 <style scoped>
 .scoreboard-root {
-  --score-scale: 1;
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-@media (min-width: 1280px) {
-  .scoreboard-root {
-    --score-scale: 1.12;
-  }
-}
-
-@media (min-width: 1920px) {
-  .scoreboard-root {
-    --score-scale: 1.25;
-  }
-}
-
-.display-mode-note {
-  margin: 0;
-  max-width: 360px;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  color: var(--color-muted);
-  text-align: center;
 }
 
 .round-bar {
@@ -823,45 +653,15 @@
   gap: 12px;
 }
 
-.round-bar-actions {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
-
-.display-mode-btn {
-  min-height: var(--touch-min);
-  padding: 10px 18px;
-  font-size: 0.9rem;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: #c4b5fd;
-  background: #1e1b2e;
-  border: 1px solid #4c1d95;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.display-mode-btn[aria-pressed="true"] {
-  color: #fff;
-  background: #6d28d9;
-  border-color: #8b5cf6;
-}
-
-.status-live-region {
-  min-height: 0;
-}
-
 .round-label {
-  font-size: calc(1.2rem * var(--score-scale));
+  font-size: 1.2rem;
   font-weight: bold;
   letter-spacing: 1px;
   color: #a78bfa;
 }
 
 .scoreboard-round {
-  margin-bottom: calc(40px * var(--score-scale));
+  margin-bottom: 40px;
 }
 
 /* Fixed-height slot keeps the panel height constant whether the status shows
@@ -889,7 +689,7 @@
 }
 
 .lane-banner {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -943,12 +743,11 @@
 
 .tab-btn {
   flex: 1;
-  min-height: var(--touch-min);
   padding: 10px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.85rem;
   font-weight: bold;
   text-transform: uppercase;
@@ -970,8 +769,8 @@
 }
 
 .panel-scores {
-  flex: 0 0 min(425px, 100%);
-  width: min(425px, 100%);
+  flex: 0 0 425px;
+  width: 425px;
 }
 
 /* iPads are the primary target: portrait iPads (and phones) get the tabbed
@@ -1002,26 +801,6 @@
     width: 100%;
     flex-direction: column;
     align-items: center;
-  }
-}
-
-@media (max-width: 640px) {
-  .scoreboard {
-    padding: 16px 8px;
-  }
-
-  .scoreboard-row {
-    gap: 10px;
-    grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr);
-  }
-
-  .results-table .round-head,
-  .results-table td {
-    padding: 10px 14px;
-  }
-
-  .results-table .player-head {
-    padding: 10px 12px;
   }
 }
 
@@ -1068,7 +847,7 @@
 }
 
 .col-header {
-  font-size: calc(1.1rem * var(--score-scale));
+  font-size: 1.1rem;
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -1082,21 +861,21 @@
 }
 
 .round-col-label {
-  color: #94a3b8;
-  font-size: calc(1.1rem * var(--score-scale));
+  color: #475569;
+  font-size: 1.1rem;
 }
 
 .score-cell {
   text-align: center;
-  font-size: calc(1.4rem * var(--score-scale));
+  font-size: 1.4rem;
   font-weight: bold;
-  color: #64748b;
+  color: #334155;
   padding: 4px 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: calc(48px * var(--score-scale));
+  height: 40px;
 }
 
 .score-cell.filled {
@@ -1104,15 +883,13 @@
 }
 
 .score-btn {
-  font-size: calc(1.4rem * var(--score-scale));
+  font-size: 1.4rem;
   font-weight: bold;
   color: #e2e8f0;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 6px 10px;
-  min-width: calc(44px * var(--score-scale));
-  min-height: calc(44px * var(--score-scale));
+  padding: 2px 6px;
   border-radius: 4px;
   line-height: 1;
 }
@@ -1132,21 +909,20 @@
 }
 
 .reset-cancel-btn {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: bold;
   color: #e2e8f0;
   background: #334155;
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: 16px;
+  height: 16px;
   padding: 0;
-  line-height: 1;
+  line-height: 16px;
   text-align: center;
-  align-self: center;
+  align-self: flex-start;
+  margin-top: 2px;
   flex-shrink: 0;
 }
 
@@ -1162,13 +938,13 @@
 
 .round-num {
   text-align: center;
-  font-size: calc(0.85rem * var(--score-scale));
-  color: #94a3b8;
+  font-size: 0.75rem;
+  color: #475569;
 }
 
 .total-cell {
   text-align: center;
-  font-size: calc(1.6rem * var(--score-scale));
+  font-size: 1.6rem;
   font-weight: bold;
   color: #e2e8f0;
   padding-top: 6px;
@@ -1177,7 +953,7 @@
 
 .total-label {
   text-align: center;
-  font-size: calc(0.85rem * var(--score-scale));
+  font-size: 0.75rem;
   font-weight: bold;
   text-transform: uppercase;
   color: #8b5cf6;
@@ -1188,8 +964,7 @@
 
 .next-round-btn {
   padding: 12px 28px;
-  min-height: var(--touch-min);
-  font-size: calc(1rem * var(--score-scale));
+  font-size: 1rem;
   font-weight: bold;
   background-color: #059669;
   color: #fff;
@@ -1205,9 +980,9 @@
 .match-in-progress {
   display: inline-block;
   padding: 12px 28px;
-  font-size: calc(1rem * var(--score-scale));
+  font-size: 1rem;
   font-weight: bold;
-  color: #94a3b8;
+  color: #475569;
   letter-spacing: 1px;
 }
 
@@ -1234,43 +1009,15 @@
 
 .results-table {
   border-collapse: collapse;
-  font-size: calc(1.15rem * var(--score-scale));
-}
-
-.round-head-btn,
-.round-cell-btn {
-  width: 100%;
-  min-height: var(--touch-min);
-  padding: 8px 12px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.round-head-btn {
-  color: #a78bfa;
-  font-size: calc(1.1rem * var(--score-scale));
-  font-weight: bold;
-}
-
-.round-head-btn:hover,
-.round-cell-btn:hover {
-  background: #1e293b;
-}
-
-.results-table .selectable .round-cell-btn {
-  cursor: pointer;
+  font-size: 1.15rem;
 }
 
 /* Round-number column headers across the top */
 .results-table .round-head {
-  padding: 8px 10px;
+  padding: 12px 42px;
   text-align: center;
   border-bottom: 2px solid #8b5cf6;
-  font-size: calc(1.1rem * var(--score-scale));
+  font-size: 1.25rem;
   color: #a78bfa;
   white-space: nowrap;
 }
@@ -1291,7 +1038,7 @@
 }
 
 .results-table td {
-  padding: 8px 10px;
+  padding: 12px 32px;
   text-align: center;
   border-bottom: 1px solid #1e293b;
   color: #cbd5e1;
@@ -1324,12 +1071,11 @@
 }
 
 .new-game-btn {
-  font-size: calc(0.95rem * var(--score-scale));
+  font-size: 0.95rem;
   font-weight: bold;
   letter-spacing: 1px;
   text-transform: uppercase;
-  padding: 10px 20px;
-  min-height: var(--touch-min);
+  padding: 8px 20px;
   background: #7c3aed;
   color: #fff;
   border: none;

@@ -14,10 +14,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-body.tv-overlay-active {
-  overflow: hidden;
-}
-
 html, body, #app {
   touch-action: manipulation;
 }
