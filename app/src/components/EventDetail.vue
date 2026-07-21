@@ -258,7 +258,11 @@
       <!-- Players (collapsed once the swiss stage is generated, but still
            reachable so late arrivals can be marked) -->
       <section class="section">
-        <button class="section-title section-toggle" @click="playersCollapsed = !playersCollapsed">
+        <button
+          class="section-title section-toggle"
+          :aria-expanded="!playersCollapsed"
+          @click="playersCollapsed = !playersCollapsed"
+        >
           Players
           <span class="toggle-indicator">{{ playersCollapsed ? '▸' : '▾' }}</span>
         </button>
@@ -341,7 +345,11 @@
               :key="match.match_id"
               class="match-item"
               :class="matchStatus(match)"
+              role="button"
+              tabindex="0"
               @click="selectMatch(match)"
+              @keydown.enter.prevent="selectMatch(match)"
+              @keydown.space.prevent="selectMatch(match)"
             >
               <span class="match-name">{{ matchLabel(match) }}</span>
               <span class="match-status">
@@ -537,6 +545,11 @@
 
 .match-item {
   cursor: pointer;
+}
+
+.match-item[role="button"]:focus-visible {
+  outline: 2px solid var(--color-purple-focus);
+  outline-offset: 2px;
 }
 
 .match-item:hover {

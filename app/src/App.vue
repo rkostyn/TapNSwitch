@@ -11,6 +11,7 @@
   const player2Name = ref('Player 2')
   const matchContext = ref(null) // { matchId, eventId, player1Id, player2Id, eventName }
   const activeGroup = ref(null)
+  const spectatorMode = ref(false)
 
   const showConfig = ref(true)
   const configRounds = ref(3)
@@ -76,8 +77,8 @@
 </script>
 
 <template>
-  <div class="page">
-    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
+  <div class="page" :class="{ 'spectator-page': spectatorMode }">
+    <AppHeader v-if="!spectatorMode" ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">
       <ScoreBoard
@@ -86,6 +87,7 @@
         :player2Name="player2Name"
         :totalRounds="totalRounds"
         :matchContext="matchContext"
+        v-model:spectator-mode="spectatorMode"
         @requestConfig="openConfig"
         @matchDone="onMatchDone"
       />
@@ -93,28 +95,28 @@
 
     <Teleport to="body">
       <div v-if="showConfig" class="modal-overlay" @click.self="showConfig = false">
-        <div class="modal">
-          <h2 class="modal-title">Match Settings</h2>
+        <div class="modal" role="dialog" aria-labelledby="match-settings-title">
+          <h2 id="match-settings-title" class="modal-title">Match Settings</h2>
 
           <p v-if="activeGroup" class="modal-group-note">
             Group: {{ activeGroup.event_name }}
             <span v-if="activeGroup.checkfront_booking_code">({{ activeGroup.checkfront_booking_code }})</span>
           </p>
 
-          <label class="modal-label">Player 1 Name</label>
-          <select v-if="useRosterPicker" class="modal-input" v-model="configP1">
+          <label class="modal-label" for="config-p1">Player 1 Name</label>
+          <select v-if="useRosterPicker" id="config-p1" class="modal-input" v-model="configP1">
             <option v-for="name in rosterPlayers" :key="`p1-${name}`" :value="name">{{ name }}</option>
           </select>
-          <input v-else class="modal-input" v-model="configP1" placeholder="Player 1" />
+          <input v-else id="config-p1" class="modal-input" v-model="configP1" placeholder="Player 1" />
 
-          <label class="modal-label">Player 2 Name</label>
-          <select v-if="useRosterPicker" class="modal-input" v-model="configP2">
+          <label class="modal-label" for="config-p2">Player 2 Name</label>
+          <select v-if="useRosterPicker" id="config-p2" class="modal-input" v-model="configP2">
             <option v-for="name in rosterPlayers" :key="`p2-${name}`" :value="name">{{ name }}</option>
           </select>
-          <input v-else class="modal-input" v-model="configP2" placeholder="Player 2" />
+          <input v-else id="config-p2" class="modal-input" v-model="configP2" placeholder="Player 2" />
 
-          <label class="modal-label">Number of Rounds</label>
-          <input class="modal-input" type="number" v-model.number="configRounds" min="1" max="10" />
+          <label class="modal-label" for="config-rounds">Number of Rounds</label>
+          <input id="config-rounds" class="modal-input" type="number" v-model.number="configRounds" min="1" max="10" />
 
           <p class="modal-warning">Applying settings will reset the current match.</p>
 
@@ -140,11 +142,16 @@
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
-  padding: 20px;
+  padding: clamp(12px, 3vw, 20px);
   display: flex;
   flex-direction: column;
   gap: 20px;
   flex: 1;
+}
+
+.spectator-page .content {
+  max-width: min(1600px, 100%);
+  padding: clamp(16px, 2vw, 32px);
 }
 
 .modal-group-note {

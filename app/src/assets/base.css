@@ -1,6 +1,8 @@
 :root {
   --color-background: #0f1117;
   --color-text: #e2e8f0;
+  --touch-min: 44px;
+  --display-scale: 1;
 }
 
 *,
@@ -16,9 +18,36 @@ html, body, #app {
   touch-action: manipulation;
 }
 
-input, label, span, div {
+input, textarea, select {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+button, a, [role="button"], [role="tab"] {
   user-select: none;
   -webkit-user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible),
+[role="tab"]:focus:not(:focus-visible) {
+  outline: none;
 }
 
 html {
