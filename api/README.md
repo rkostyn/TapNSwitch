@@ -153,4 +153,4 @@ python -m pytest app/tests/ -v
 
 ## License
 
-GPLv3 — see [LICENSE](https://www.gnu.org/licenses/gpl-3.0.en.html).
+AGPLv3 — see [LICENSE](../LICENSE). Venue use and commercial licensing: [LICENSING.md](../LICENSING.md).
