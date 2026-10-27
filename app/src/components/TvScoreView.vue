@@ -1,9 +1,10 @@
 <script setup>
   import { ref, onMounted, onUnmounted } from 'vue'
-  import { getLaneBoard, getMatchesByEvent, getRoundsByMatch, getThrows } from '../api'
+  import ScoreVisual from './ScoreVisual.vue'
+  import { getLaneBoard, getMatchesByEvent, getRoundsByMatch, getThrows, getTvSnapshot } from '../api'
   import { GHOST_DISPLAY_NAME, GHOST_PLAYER_ID } from '../config'
   import { arenaById, arenaLabel as formatArenas } from '../venue'
-  import { subscribeTvSnapshot } from '../displaySync'
+  import { nextUpMatch } from '../nextMatch'
 
   const props = defineProps({
     arenaId: { type: String, default: null },
@@ -11,7 +12,6 @@
 
   const snapshot = ref(null)
   const waitingNote = ref('')
-  let stopFollow = null
   let pollTimer = null
 
   const nameOf = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
@@ -43,14 +43,14 @@
         getRoundsByMatch(live.match_id),
         getThrows({ matchId: live.match_id }),
       ])
-      snapshot.value = snapshotFromMatch(live, arena.group, rounds, throws)
+      snapshot.value = snapshotFromMatch(live, arena.group, rounds, throws, matches)
       waitingNote.value = ''
     } catch {
       waitingNote.value = waitingNote.value || 'Could not load this lane'
     }
   }
 
-  function snapshotFromMatch(match, group, rounds, throws) {
+  function snapshotFromMatch(match, group, rounds, throws, matches) {
     const byRoundId = Object.fromEntries(rounds.map(round => [round.round_id, round.sequence]))
     const bySeq = {}
     for (const item of throws) {
@@ -95,6 +95,16 @@
       arenaLabel: formatArenas(group.arena_ids),
       gameWinner: match.winner_id ? nameOf(match.winner_id) : null,
       showTiebreak: false,
+      nextMatch: (() => {
+        const finished = Object.values(bySeq).filter(row =>
+          (row.s1?.length ?? 0) >= 5 && (row.s2?.length ?? 0) >= 5
+        ).length
+        if (finished < 2) return null
+        const upcoming = nextUpMatch(matches, match.match_id)
+        return upcoming
+          ? { player1: nameOf(upcoming.player_1_id), player2: nameOf(upcoming.player_2_id) }
+          : null
+      })(),
       updatedAt: Date.now(),
     }
   }
@@ -106,20 +116,31 @@
     }
   }
 
-  onMounted(() => {
-    if (props.arenaId) {
-      loadArenaMatch()
-      pollTimer = setInterval(loadArenaMatch, 2000)
-    } else {
-      stopFollow = subscribeTvSnapshot(next => {
-        snapshot.value = next
-        waitingNote.value = next ? '' : 'Waiting for a match from the scoring iPad'
-      })
+  async function loadSnapshot() {
+    try {
+      const live = await getTvSnapshot()
+      if (live) {
+        snapshot.value = live
+        waitingNote.value = ''
+        return
+      }
+    } catch {
+      // Fall through to the lane poll when the TV has no snapshot yet
     }
+    if (props.arenaId) {
+      await loadArenaMatch()
+      return
+    }
+    snapshot.value = null
+    waitingNote.value = 'Waiting for a match from the scoring iPad'
+  }
+
+  onMounted(() => {
+    loadSnapshot()
+    pollTimer = setInterval(loadSnapshot, 1000)
   })
 
   onUnmounted(() => {
-    stopFollow?.()
     if (pollTimer) clearInterval(pollTimer)
   })
 </script>
@@ -127,68 +148,26 @@
 <template>
   <div class="tv" @dblclick="enterFullscreen">
     <template v-if="snapshot">
-      <header class="tv-top">
-        <p v-if="snapshot.eventName || snapshot.arenaLabel" class="tv-meta">
-          <span v-if="snapshot.eventName">{{ snapshot.eventName }}</span>
-          <span v-if="snapshot.arenaLabel"> · {{ snapshot.arenaLabel }}</span>
-        </p>
-        <h1 class="tv-round">
-          {{ snapshot.showTiebreak ? 'Tie breaker' : `Round ${snapshot.displayRound} of ${snapshot.totalRounds}` }}
-        </h1>
-      </header>
-
-      <div class="tv-match">
-        <section class="tv-side">
-          <h2 class="tv-name">{{ snapshot.leftName }}</h2>
-          <ol class="tv-throws">
-            <li v-for="(score, i) in snapshot.leftScores" :key="`l-${i}`" :class="{ empty: !score }">
-              <template v-if="score">{{ score.value }}<sup v-if="score.drop">d</sup></template>
-              <template v-else>—</template>
-            </li>
-          </ol>
-          <p class="tv-total">{{ throwTotal(snapshot.leftScores) }}</p>
-        </section>
-
-        <section class="tv-side tv-side-right">
-          <h2 class="tv-name">{{ snapshot.rightName }}</h2>
-          <ol class="tv-throws">
-            <li v-for="(score, i) in snapshot.rightScores" :key="`r-${i}`" :class="{ empty: !score }">
-              <template v-if="score">{{ score.value }}<sup v-if="score.drop">d</sup></template>
-              <template v-else>—</template>
-            </li>
-          </ol>
-          <p class="tv-total">{{ throwTotal(snapshot.rightScores) }}</p>
-        </section>
-      </div>
-
-      <table class="tv-rounds">
-        <thead>
-          <tr>
-            <th></th>
-            <th v-for="row in snapshot.roundRows" :key="row.round">R{{ row.round }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <th>{{ snapshot.player1Name }}</th>
-            <td
-              v-for="row in snapshot.roundRows"
-              :key="`p1-${row.round}`"
-              :class="{ win: row.status === 'p1' }"
-            >{{ row.t1 ?? '–' }}</td>
-          </tr>
-          <tr>
-            <th>{{ snapshot.player2Name }}</th>
-            <td
-              v-for="row in snapshot.roundRows"
-              :key="`p2-${row.round}`"
-              :class="{ win: row.status === 'p2' }"
-            >{{ row.t2 ?? '–' }}</td>
-          </tr>
-        </tbody>
-      </table>
-
+      <p v-if="snapshot.eventName || snapshot.arenaLabel" class="tv-meta">
+        <span v-if="snapshot.eventName">{{ snapshot.eventName }}</span>
+        <span v-if="snapshot.arenaLabel"> · {{ snapshot.arenaLabel }}</span>
+      </p>
+      <ScoreVisual
+        :leftName="snapshot.leftName"
+        :rightName="snapshot.rightName"
+        :player1Name="snapshot.player1Name"
+        :player2Name="snapshot.player2Name"
+        :leftScores="snapshot.leftScores"
+        :rightScores="snapshot.rightScores"
+        :displayRound="snapshot.displayRound"
+        :totalRounds="snapshot.totalRounds"
+        :showTiebreak="snapshot.showTiebreak"
+        :roundRows="snapshot.roundRows"
+      />
       <p v-if="snapshot.gameWinner" class="tv-winner">{{ snapshot.gameWinner }} wins</p>
+      <p v-if="snapshot.nextMatch" class="tv-next">
+        Next match is {{ snapshot.nextMatch.player1 }} and {{ snapshot.nextMatch.player2 }}
+      </p>
     </template>
 
     <p v-else class="tv-wait">{{ waitingNote || 'Waiting for a match' }}</p>
@@ -198,119 +177,43 @@
 <style scoped>
 .tv {
   min-height: 100vh;
-  padding: clamp(16px, 4vw, 40px);
+  padding: 24px 16px 40px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(16px, 3vh, 32px);
-  background: #07080c;
-  color: #f8fafc;
-}
-
-.tv-top {
-  text-align: center;
-}
-
-.tv-meta {
-  margin: 0 0 6px;
-  font-size: clamp(0.85rem, 2vw, 1.2rem);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #94a3b8;
-}
-
-.tv-round {
-  margin: 0;
-  font-size: clamp(1.6rem, 4vw, 3rem);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #a78bfa;
-}
-
-.tv-match {
-  width: min(1200px, 100%);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(24px, 6vw, 80px);
-}
-
-.tv-name {
-  margin: 0 0 12px;
-  font-size: clamp(1.8rem, 5vw, 3.4rem);
-  line-height: 1.1;
-}
-
-.tv-side-right {
-  text-align: right;
-}
-
-.tv-throws {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.tv-throws li {
-  font-size: clamp(1.8rem, 5vw, 3.2rem);
-  font-weight: bold;
-}
-
-.tv-throws li.empty {
-  color: #334155;
-}
-
-.tv-total {
-  margin: 12px 0 0;
-  font-size: clamp(2.2rem, 6vw, 4rem);
-  font-weight: bold;
-  color: #34d399;
-  border-top: 3px solid #34d399;
-  padding-top: 8px;
-}
-
-.tv-rounds {
-  border-collapse: collapse;
-  font-size: clamp(1rem, 2.4vw, 1.6rem);
-}
-
-.tv-rounds th,
-.tv-rounds td {
-  padding: 8px 22px;
-  text-align: center;
-}
-
-.tv-rounds thead th {
-  color: #a78bfa;
-  border-bottom: 2px solid #7c3aed;
-}
-
-.tv-rounds tbody th {
-  text-align: left;
+  background: #0b0d12;
   color: #e2e8f0;
 }
 
-.tv-rounds td.win {
-  color: #6ee7b7;
-  background: #064e3b;
+.tv-meta {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #34d399;
 }
 
 .tv-winner {
-  margin: 0;
-  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  margin: 20px 0 0;
+  font-size: 1.1rem;
   font-weight: bold;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #34d399;
+}
+
+.tv-next {
+  margin: 12px 0 0;
+  font-size: 1rem;
+  color: #e2e8f0;
 }
 
 .tv-wait {
   margin: 0;
-  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  font-size: 1.2rem;
   color: #64748b;
   text-align: center;
 }

@@ -24,6 +24,7 @@ export interface TvSnapshot {
   arenaLabel: string
   gameWinner: string | null
   showTiebreak: boolean
+  nextMatch: { player1: string; player2: string } | null
   updatedAt: number
 }
 
