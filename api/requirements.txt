@@ -31,7 +31,7 @@ prometheus-fastapi-instrumentator==7.1.0
 prometheus_client==0.24.1
 pydantic==2.12.5
 pydantic-extra-types==2.11.2
-pydantic-settings==2.13.1
+pydantic-settings==2.14.0
 pydantic_core==2.41.5
 Pygments==2.20.0
 pymongo==4.16.0
