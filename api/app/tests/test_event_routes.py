@@ -35,6 +35,73 @@ def test_list_events_unauthenticated(client):
     assert response.status_code == 401
 
 
+def test_list_events_filters_by_search(client, auth_token):
+    from datetime import UTC, datetime, time
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
+    start = datetime.combine(today, time.min, tzinfo=tz).astimezone(UTC)
+
+    client.post(
+        "/event",
+        json={
+            "event_name": "Brian Party",
+            "players": ["Brian Zeng", "Alex"],
+            "start_timestamp": start.isoformat().replace("+00:00", "Z"),
+        },
+        headers=auth_headers(auth_token),
+    )
+    client.post(
+        "/event",
+        json={
+            "event_name": "Other Group",
+            "players": ["Casey", "Dana"],
+            "start_timestamp": start.isoformat().replace("+00:00", "Z"),
+        },
+        headers=auth_headers(auth_token),
+    )
+
+    response = client.get("/event", params={"q": "Brian"}, headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    names = [e["event_name"] for e in response.json()]
+    assert names == ["Brian Party"]
+
+
+@pytest.mark.asyncio
+async def test_checkfront_active_defaults_to_today(client, auth_token, mongo_client):
+    from datetime import UTC, datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.repositories.event_repository import EventRepository
+    from app.models.event import EventCreate
+
+    tz = ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
+    today_start = datetime.combine(today, time.min, tzinfo=tz).astimezone(UTC)
+    yesterday_start = today_start - timedelta(days=1)
+
+    repo = EventRepository(mongo_client)
+    await repo.create_checkfront_event(
+        EventCreate(event_name="Today Booking", players=["Alice"], start_timestamp=today_start),
+        booking_id="today-1",
+        booking_code="TODAY-001",
+        session_key=None,
+    )
+    await repo.create_checkfront_event(
+        EventCreate(event_name="Yesterday Booking", players=["Bob"], start_timestamp=yesterday_start),
+        booking_id="yday-1",
+        booking_code="YDAY-001",
+        session_key=None,
+    )
+
+    response = client.get("/event/checkfront/active", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    codes = [e.get("checkfront_booking_code") for e in response.json()]
+    assert "TODAY-001" in codes
+    assert "YDAY-001" not in codes
+
+
 def test_create_event_unauthenticated(client):
     response = client.post("/event", json=EVENT_PAYLOAD)
     assert response.status_code == 401

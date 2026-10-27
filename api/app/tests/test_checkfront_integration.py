@@ -164,6 +164,36 @@ API_BOOKING_DETAIL = {
     }
 }
 
+# Real Checkfront API 3.0 detail shape (Baltimore): code lives in `id`,
+# items are keyed by line number, customer fields may live in `meta`.
+API_BOOKING_DETAIL_V3 = {
+    "version": "3.0",
+    "request": {"status": "OK", "resource": "booking", "id": "39811"},
+    "booking": {
+        "id": "YVXL-200626",
+        "booking_id": 39811,
+        "status_id": "PAID",
+        "customer_name": "Jordan Smith",
+        "customer_email": "jordan@example.com",
+        "start_date": 1784152800,
+        "end_date": 1784167200,
+        "meta": {
+            "customer_name": "Jordan Smith",
+            "customer_first_name": "Jordan",
+            "customer_last_name": "Smith",
+        },
+        "items": {
+            "1": {
+                "status_id": "PAID",
+                "id": 20,
+                "sku": "private-event-2hr",
+                "qty": "2",
+                "start_date": 1784152800,
+            }
+        },
+    },
+}
+
 
 def test_parse_checkfront_api_index_entry():
     booking = parse_checkfront_payload({"booking/index": {"157": API_INDEX_ENTRY}})
@@ -176,6 +206,17 @@ def test_parse_checkfront_api_booking_detail():
     booking = parse_checkfront_payload(API_BOOKING_DETAIL)
     assert booking is not None
     assert booking.item_skus == ["private-event-2hr"]
+
+
+def test_parse_checkfront_api_booking_detail_v3_shape():
+    booking = parse_checkfront_payload(API_BOOKING_DETAIL_V3)
+    assert booking is not None
+    assert booking.booking_id == "39811"
+    assert booking.code == "YVXL-200626"
+    assert booking.customer_name == "Jordan Smith"
+    assert booking.item_skus == ["private-event-2hr"]
+    assert booking.item_ids == ["20"]
+    assert booking.qty == 2
 
 
 @pytest.mark.asyncio

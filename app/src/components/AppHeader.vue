@@ -24,12 +24,16 @@
 
   const checkfrontGroups = ref([])
   const selectedGroupId = ref('')
+  const groupSearch = ref('')
   const groupsLoading = ref(false)
   const checkfrontStatus = ref(null)
   const syncLoading = ref(false)
   const syncMessage = ref('')
   let groupsPollTimer = null
   let syncMessageTimer = null
+  let groupSearchTimer = null
+
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 
   function groupLabel(event) {
     const where = arenaLabel(event.arena_ids)
@@ -64,6 +68,14 @@
       showSyncMessage(`Synced ${result.synced} · skipped ${result.skipped} · failed ${result.failed}`)
       await loadCheckfrontGroups()
       await loadCheckfrontStatus()
+      // Keep Match Settings + open Events detail aligned with refreshed Checkfront rosters
+      if (selectedGroupId.value) {
+        const group = checkfrontGroups.value.find(g => g.event_id === selectedGroupId.value) ?? null
+        emit('selectGroup', group)
+        if (group?.event_id && showEvents.value) {
+          openEvents(group.event_id)
+        }
+      }
     } catch (e) {
       const detail = e?.response?.data?.detail
       if (e?.response?.status === 503) {
@@ -82,7 +94,8 @@
     if (!loggedInUser.value) return
     groupsLoading.value = true
     try {
-      const groups = await getActiveCheckfrontEvents()
+      const q = groupSearch.value.trim()
+      const groups = await getActiveCheckfrontEvents(q ? { q } : undefined)
       checkfrontGroups.value = groups
       if (selectedGroupId.value && !groups.some(g => g.event_id === selectedGroupId.value)) {
         selectedGroupId.value = ''
@@ -95,9 +108,18 @@
     }
   }
 
+  function onGroupSearchInput() {
+    if (groupSearchTimer) clearTimeout(groupSearchTimer)
+    groupSearchTimer = setTimeout(loadCheckfrontGroups, 300)
+  }
+
   function onGroupChange() {
     const group = checkfrontGroups.value.find(g => g.event_id === selectedGroupId.value) ?? null
     emit('selectGroup', group)
+    // Open the Checkfront event roster so Players matches the selected booking
+    if (group?.event_id) {
+      openEvents(group.event_id)
+    }
   }
 
   function startGroupsPoll() {
@@ -121,6 +143,7 @@
       stopGroupsPoll()
       checkfrontGroups.value = []
       selectedGroupId.value = ''
+      groupSearch.value = ''
       checkfrontStatus.value = null
       syncMessage.value = ''
       emit('selectGroup', null)
@@ -137,6 +160,7 @@
   onUnmounted(() => {
     stopGroupsPoll()
     if (syncMessageTimer) clearTimeout(syncMessageTimer)
+    if (groupSearchTimer) clearTimeout(groupSearchTimer)
   })
 
   function openEvents(eventId = null) {
@@ -212,7 +236,15 @@
       <button v-if="loggedInUser" class="auth-btn lanes-btn" @click="openLanes">Lanes</button>
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
       <label v-if="loggedInUser" class="group-picker">
-        <span class="group-picker-label">Group</span>
+        <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
+        <input
+          class="group-search-input"
+          v-model="groupSearch"
+          type="search"
+          placeholder="Search booking or player…"
+          :disabled="groupsLoading"
+          @input="onGroupSearchInput"
+        />
         <select
           class="group-picker-select"
           v-model="selectedGroupId"
@@ -220,7 +252,7 @@
           :disabled="groupsLoading && checkfrontGroups.length === 0"
         >
           <option value="">
-            {{ checkfrontGroups.length ? 'Select Checkfront group…' : 'No Checkfront groups yet' }}
+            {{ groupsLoading ? 'Loading today…' : (checkfrontGroups.length ? 'Select booking…' : (groupSearch ? 'No matches today' : 'No bookings today')) }}
           </option>
           <option v-for="group in checkfrontGroups" :key="group.event_id" :value="group.event_id">
             {{ groupLabel(group) }}
@@ -231,14 +263,14 @@
         v-if="loggedInUser"
         class="auth-btn sync-btn"
         @click="syncCheckfront"
-        :disabled="syncLoading || checkfrontStatus?.configured === false"
+        :disabled="syncLoading"
         :title="checkfrontStatus?.configured === false
-          ? 'Checkfront API credentials are not set on the server'
+          ? 'Checkfront API credentials may not be set on the server — tap to retry'
           : 'Pull today\'s bookings from Checkfront now'"
       >
-        {{ syncLoading ? 'Syncing…' : 'Sync Checkfront' }}
+        {{ syncLoading ? 'Syncing…' : 'Sync' }}
       </button>
-      <span v-if="loggedInUser && syncMessage" class="sync-message">{{ syncMessage }}</span>
+      <span v-if="loggedInUser && syncMessage" class="sync-message" :title="syncMessage">{{ syncMessage }}</span>
     </div>
     <div class="header-right">
       <template v-if="loggedInUser">
@@ -250,20 +282,27 @@
         <button class="auth-btn login-btn" @click="openLogin">Log In</button>
         <button class="auth-btn register-btn">Register</button>
       </template>
-      <button class="config-btn" @click="emit('openConfig')">&#9881;</button>
+      <button class="config-btn" aria-label="Match settings" @click="emit('openConfig')">&#9881;</button>
     </div>
   </header>
 
-  <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="onEventsClose" @selectMatch="emit('selectMatch', $event)" />
+  <EventsModal
+    v-if="showEvents"
+    :key="eventsInitialId ?? 'events-list'"
+    :initialEventId="eventsInitialId"
+    @close="onEventsClose"
+    @selectMatch="emit('selectMatch', $event)"
+  />
   <LanesBoard v-if="showLanes" @close="onLanesClose" @openEvent="openEventFromLanes" />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">
-      <div class="modal">
-        <h2 class="modal-title">Log In</h2>
+      <div class="modal" role="dialog" aria-labelledby="login-title">
+        <h2 id="login-title" class="modal-title">Log In</h2>
 
-        <label class="modal-label">Username</label>
+        <label class="modal-label" for="login-username">Username</label>
         <input
+          id="login-username"
           class="modal-input"
           v-model="username"
           placeholder="Username"
@@ -271,8 +310,9 @@
           :disabled="loading"
         />
 
-        <label class="modal-label">Password</label>
+        <label class="modal-label" for="login-password">Password</label>
         <input
+          id="login-password"
           class="modal-input"
           type="password"
           v-model="password"
@@ -303,8 +343,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  height: 56px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  min-height: 56px;
   background: #13151c;
   border-bottom: 1px solid #1e293b;
 }
@@ -313,13 +355,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .group-picker {
@@ -327,6 +372,22 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.group-search-input {
+  width: min(200px, 40vw);
+  min-height: var(--touch-min);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #334155;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.group-search-input::placeholder {
+  color: var(--color-muted);
 }
 
 .group-picker-label {
@@ -338,9 +399,10 @@
 }
 
 .group-picker-select {
-  min-width: 180px;
-  max-width: min(420px, 48vw);
-  padding: 6px 10px;
+  min-width: min(180px, 40vw);
+  max-width: min(420px, 70vw);
+  min-height: var(--touch-min);
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid #334155;
   background: var(--color-bg-input);
@@ -349,8 +411,10 @@
 }
 
 .config-btn {
-  width: 34px;
-  height: 34px;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
   font-size: 1.1rem;
   background: var(--color-bg-secondary);
   color: var(--color-purple);
@@ -391,9 +455,33 @@
 .sync-message {
   font-size: 0.75rem;
   color: var(--color-muted);
-  max-width: min(320px, 30vw);
+  max-width: min(320px, 60vw);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    padding: 8px 12px;
+  }
+
+  .header-left {
+    width: 100%;
+  }
+
+  .group-picker {
+    width: 100%;
+  }
+
+  .group-search-input,
+  .group-picker-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .logged-in-user {
+    display: none;
+  }
 }
 </style>

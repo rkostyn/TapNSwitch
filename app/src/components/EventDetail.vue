@@ -2,6 +2,7 @@
   import { ref, computed, onMounted } from 'vue'
   import {
     getEvent,
+    getVenueArenas,
     addPlayer,
     removePlayer,
     setPlayerLate,
@@ -26,6 +27,7 @@
 
   const event = ref(null)
   const matches = ref([])
+  const venueArenas = ref([])
   const loading = ref(true)
   const error = ref('')
   const busy = ref(false)
@@ -72,6 +74,11 @@
   const bracketGenerated = computed(() => !!event.value?.bracket_generated_at)
   const standings = computed(() => event.value?.swiss_standings ?? null)
 
+  function arenaLabel(arenaId) {
+    if (!arenaId) return ''
+    return venueArenas.value.find(a => a.id === arenaId)?.label ?? arenaId
+  }
+
   function holderLabel(lockedBy) {
     if (!lockedBy) return ''
     return lockedBy === clientId ? 'this device' : `device ${lockedBy.slice(0, 8)}`
@@ -81,8 +88,14 @@
     loading.value = true
     error.value = ''
     try {
-      event.value = await getEvent(props.eventId)
-      matches.value = await getMatchesByEvent(props.eventId)
+      const [ev, matchList, arenas] = await Promise.all([
+        getEvent(props.eventId),
+        getMatchesByEvent(props.eventId),
+        getVenueArenas().catch(() => []),
+      ])
+      event.value = ev
+      matches.value = matchList
+      venueArenas.value = arenas
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
       if (bracketGenerated.value) activeTab.value = 'bracket'
@@ -211,7 +224,7 @@
     busy.value = true
     try {
       const locked = await lockMatch(match.match_id, force)
-      emit('selectMatch', { match: locked, event: event.value })
+      emit('selectMatch', { match: locked, event: event.value, arenaLabel: arenaLabel(locked.arena_id) })
     } catch (e) {
       if (e?.response?.status === 423) {
         takeover.value = { match, lockedBy: e.response.data?.detail?.locked_by ?? 'another coach' }
@@ -263,11 +276,20 @@
       <!-- Players (collapsed once the swiss stage is generated, but still
            reachable so late arrivals can be marked) -->
       <section class="section">
-        <button class="section-title section-toggle" @click="playersCollapsed = !playersCollapsed">
+        <button
+          class="section-title section-toggle"
+          :aria-expanded="!playersCollapsed"
+          @click="playersCollapsed = !playersCollapsed"
+        >
           Players
           <span class="toggle-indicator">{{ playersCollapsed ? '▸' : '▾' }}</span>
         </button>
         <template v-if="!playersCollapsed">
+        <p v-if="event.source === 'checkfront'" class="checkfront-players-note">
+          Players imported from Checkfront
+          <span v-if="event.checkfront_booking_code">({{ event.checkfront_booking_code }})</span>.
+          Add names below for extra throwers or walk-ins.
+        </p>
         <ul class="player-list">
           <li v-for="player in event.players" :key="player" class="player-item">
             <span class="player-name">
@@ -341,7 +363,11 @@
               :key="match.match_id"
               class="match-item"
               :class="matchStatus(match)"
+              role="button"
+              tabindex="0"
               @click="selectMatch(match)"
+              @keydown.enter.prevent="selectMatch(match)"
+              @keydown.space.prevent="selectMatch(match)"
             >
               <span class="match-name">{{ matchLabel(match) }}</span>
               <span class="match-status">
@@ -479,6 +505,13 @@
   gap: 10px;
 }
 
+.checkfront-players-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
 .section-title {
   margin: 0;
   font-size: 0.85rem;
@@ -530,6 +563,11 @@
 
 .match-item {
   cursor: pointer;
+}
+
+.match-item[role="button"]:focus-visible {
+  outline: 2px solid var(--color-purple-focus);
+  outline-offset: 2px;
 }
 
 .match-item:hover {

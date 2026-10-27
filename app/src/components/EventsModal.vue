@@ -26,6 +26,10 @@
   const listLoading = ref(true)
   const listError = ref('')
   const showClosed = ref(false)
+  const eventSearch = ref('')
+  let searchTimer = null
+
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 
   const visibleEvents = computed(() =>
     showClosed.value ? events.value : events.value.filter(e => !e.is_finished)
@@ -36,12 +40,18 @@
     listLoading.value = true
     listError.value = ''
     try {
-      events.value = await getEvents()
+      const q = eventSearch.value.trim()
+      events.value = await getEvents(q ? { q } : undefined)
     } catch (e) {
       listError.value = 'Failed to load events.'
     } finally {
       listLoading.value = false
     }
+  }
+
+  function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = setTimeout(loadEvents, 300)
   }
 
   onMounted(loadEvents)
@@ -104,18 +114,39 @@
         <!-- List view -->
         <template v-else-if="view === 'list'">
           <div class="modal-header">
-            <h2 class="modal-title">Events</h2>
+            <div>
+              <h2 class="modal-title">Events</h2>
+              <p class="list-subtitle">Today · {{ todayLabel }}</p>
+            </div>
             <button class="modal-submit new-event-btn" @click="openCreate">+ New Event</button>
           </div>
+
+          <input
+            class="modal-input event-search-input"
+            v-model="eventSearch"
+            type="search"
+            placeholder="Search booking, event, or player…"
+            :disabled="listLoading"
+            @input="onSearchInput"
+          />
 
           <div v-if="listLoading" class="state-msg">Loading…</div>
           <div v-else-if="listError" class="modal-error">{{ listError }}</div>
           <template v-else>
             <div v-if="visibleEvents.length === 0" class="state-msg">
-              {{ events.length === 0 ? 'No events yet.' : 'No open events.' }}
+              {{ eventSearch ? 'No matches today.' : (events.length === 0 ? 'No events today.' : 'No open events today.') }}
             </div>
             <ul v-else class="event-list">
-              <li v-for="event in visibleEvents" :key="event.event_id" class="event-item" @click="openEvent(event)">
+              <li
+                v-for="event in visibleEvents"
+                :key="event.event_id"
+                class="event-item"
+                role="button"
+                tabindex="0"
+                @click="openEvent(event)"
+                @keydown.enter.prevent="openEvent(event)"
+                @keydown.space.prevent="openEvent(event)"
+              >
                 <span class="event-name">
                   {{ event.event_name }}
                   <ArenaChips :arenaIds="event.arena_ids" />
@@ -189,13 +220,18 @@
 
 <style scoped>
 .modal {
-  width: 420px;
+  width: min(420px, 94vw);
   max-height: 85vh;
   overflow-y: auto;
 }
 
 .modal.wide {
   width: min(860px, 94vw);
+}
+
+.event-item[role="button"]:focus-visible {
+  outline: 2px solid var(--color-purple-focus);
+  outline-offset: 2px;
 }
 
 .event-item {
@@ -209,6 +245,16 @@
 .new-event-btn {
   padding: 6px 14px;
   font-size: 0.8rem;
+}
+
+.list-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.event-search-input {
+  margin-bottom: 4px;
 }
 
 .closed-badge {

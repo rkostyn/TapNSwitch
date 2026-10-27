@@ -78,10 +78,16 @@ export interface ApiMatch {
   rounds_per_match: number
   bracket_round: number | null
   bracket_slot: number | null
+  arena_id?: string | null
   winner_id: string | null
   is_locked: boolean
   locked_by: string | null
   is_finished: boolean
+}
+
+export interface ApiArena {
+  id: string
+  label: string
 }
 
 export interface ApiRound {
@@ -100,13 +106,27 @@ export async function login(username: string, password: string): Promise<{ acces
 
 // --- Events ---------------------------------------------------------------
 
-export async function getEvents(): Promise<ApiEvent[]> {
-  const { data } = await http.get('/event')
+export interface EventListOptions {
+  /** YYYY-MM-DD in venue timezone; omit for today */
+  date?: string
+  /** Search event name, booking code, or player */
+  q?: string
+}
+
+function eventListParams(options?: EventListOptions): Record<string, string> {
+  const params: Record<string, string> = {}
+  if (options?.date) params.date = options.date
+  if (options?.q?.trim()) params.q = options.q.trim()
+  return params
+}
+
+export async function getEvents(options?: EventListOptions): Promise<ApiEvent[]> {
+  const { data } = await http.get('/event', { params: eventListParams(options) })
   return data
 }
 
-export async function getActiveCheckfrontEvents(): Promise<ApiEvent[]> {
-  const { data } = await http.get('/event/checkfront/active')
+export async function getActiveCheckfrontEvents(options?: EventListOptions): Promise<ApiEvent[]> {
+  const { data } = await http.get('/event/checkfront/active', { params: eventListParams(options) })
   return data
 }
 
@@ -133,6 +153,11 @@ export async function getCheckfrontStatus(): Promise<CheckfrontStatus> {
 export async function syncCheckfrontBookings(): Promise<CheckfrontSyncResult> {
   const { data } = await http.post('/integrations/checkfront/sync')
   return data
+}
+
+export async function getVenueArenas(): Promise<ApiArena[]> {
+  const { data } = await http.get('/venue/arenas')
+  return data.arenas
 }
 
 export async function getEvent(eventId: string): Promise<ApiEvent> {

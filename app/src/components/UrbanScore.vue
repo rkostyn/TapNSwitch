@@ -1,69 +1,106 @@
 <script setup>
-  import { ref, computed } from 'vue'
+  import { ref, computed, watch } from 'vue'
 
   const props = defineProps(['playerName', 'mirrored', 'disabled', 'clutchAvailable'])
   const emit = defineEmits(['score'])
 
-  const defaultButtons = [
-    { text: '1', score: '1', color: 'blue' },
-    { text: '3', score: '3', color: 'red' },
-    { text: '5', score: '5', color: 'purple' },
-    { text: '0', score: '0', color: 'orange' },
-    { text: 'Call Clutch', color: 'green' },
-    { text: 'Drop', score: 'Drop', color: 'gray' },
+  // IATF scoring: a regular axe scores 1, 3, 5, or 0 (hit the board outside
+  // the target). A dropped axe also scores 0 but is recorded as a drop. The
+  // Clutch circle switches the grid to clutch scoring.
+  const regularButtons = [
+    { text: '3', value: 3, color: 'red' },
+    { text: '1', value: 1, color: 'blue' },
+    { text: '0', value: 0, color: 'orange' },
+    { text: '5', value: 5, color: 'purple' },
+    { clutch: true },
+    { text: 'Drop', value: 0, color: 'gray', drop: true },
   ]
 
+  // A called clutch scores 7 or 0 (a miss). The unused circles are greyed out;
+  // Drop and Clutch (now Cancel) stay put so they're always where expected.
   const clutchButtons = [
-    { text: 'Left Clutch', score: '7', color: 'green' },
-    { text: 'Right Clutch', score: '7', color: 'green' },
-    { text: '0', score: '0', color: 'orange' },
-    { text: 'Drop', score: 'Drop', color: 'gray' },
-    { text: 'Cancel', color: 'red' },
+    { text: '0', value: 0, color: 'orange' },
+    { text: '7', value: 7, color: 'green' },
+    { text: '-', value: 0, color: 'gray', disabled: true },
+    { text: '-', value: 0, color: 'gray', disabled: true },
+    { clutch: true },
+    { text: 'Drop', value: 0, color: 'gray', drop: true },
   ]
 
-  const buttons = ref([...defaultButtons])
+  const clutchMode = ref(false)
+
+  // Clutch can only be called on the final throw; if it stops being available
+  // (the side switches, a different cell is selected) fall back to regular.
+  watch(() => props.clutchAvailable, (available) => { if (!available) clutchMode.value = false })
+
+  const activeButtons = computed(() => (clutchMode.value ? clutchButtons : regularButtons))
 
   const displayButtons = computed(() => {
-    if (!props.mirrored) return buttons.value
+    const src = activeButtons.value
+    if (!props.mirrored) return src
     const result = []
-    for (let i = 0; i < buttons.value.length; i += 2) {
-      const a = buttons.value[i], b = buttons.value[i + 1]
+    for (let i = 0; i < src.length; i += 2) {
+      const a = src[i], b = src[i + 1]
       result.push(...(b !== undefined ? [b, a] : [a]))
     }
     return result
   })
 
-  function urbanScore(score) {
-    if (score === 'Call Clutch') {
-      buttons.value = [...clutchButtons]
-    } else if (score === 'Cancel') {
-      buttons.value = [...defaultButtons]
-    } else {
-      const value = buttons.value.find(b => b.text === score)?.score ?? score
-      buttons.value = [...defaultButtons]
-      emit('score', value)
-    }
+  function toggleClutch() {
+    clutchMode.value = !clutchMode.value
+  }
+
+  function pick(item) {
+    if (item.disabled) return
+    const clutch = clutchMode.value
+    clutchMode.value = false
+    emit('score', { points: item.value, clutch, drop: !!item.drop })
+  }
+
+  function buttonLabel(item) {
+    if (item.disabled) return 'Unavailable'
+    const mode = clutchMode.value ? 'clutch ' : ''
+    return `${mode}Score ${item.text}`
   }
 </script>
 
 <template>
-  <div class="grid-container">
-    <div v-for="item in displayButtons" class="grid-child">
-      <button
-        class="button-circle"
-        :class="`color-${item.color}`"
-        :disabled="props.disabled || (item.text === 'Call Clutch' && !props.clutchAvailable)"
-        @click="urbanScore(item.text)"
-      >{{ item.text }}</button>
+  <div class="urban-score">
+    <div class="grid-container" role="group" :aria-label="`${playerName} scoring pad`">
+      <div v-for="(item, idx) in displayButtons" :key="idx" class="grid-child">
+        <button
+          v-if="item.clutch"
+          class="button-circle"
+          :class="clutchMode ? 'color-red' : 'color-teal'"
+          :disabled="props.disabled || !props.clutchAvailable"
+          @click="toggleClutch"
+        >{{ clutchMode ? 'Cancel' : 'Clutch' }}</button>
+        <button
+          v-else
+          class="button-circle"
+          :class="`color-${item.color}`"
+          :disabled="props.disabled || item.disabled"
+          :aria-label="buttonLabel(item)"
+          @click="pick(item)"
+        >{{ item.text }}</button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.urban-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 3vw, 20px);
+  width: min(100%, 260px);
 }
 
 .grid-child {
@@ -76,20 +113,22 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  width: 125px;
-  height: 125px;
+  width: clamp(88px, 24vw, 120px);
+  height: clamp(88px, 24vw, 120px);
   border-radius: 100%;
   border: none;
   font-family: inherit;
-  font-size: 1.55rem;
+  font-size: clamp(1.1rem, 3.5vw, 1.45rem);
   font-weight: bold;
   color: #fff;
   cursor: pointer;
 }
 
-.button-circle:active {
-  transition: 0.3s;
-  transform: scale(1.13);
+@media (prefers-reduced-motion: no-preference) {
+  .button-circle:active {
+    transition: 0.3s;
+    transform: scale(1.08);
+  }
 }
 
 .button-circle:disabled {
@@ -103,4 +142,5 @@
 .color-orange { background: #f59e0b; }
 .color-green  { background: #059669; }
 .color-gray   { background: #6b7280; }
+.color-teal   { background: #047857; }
 </style>

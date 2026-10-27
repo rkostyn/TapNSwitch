@@ -7,6 +7,8 @@ from app.integrations.checkfront.models import CheckfrontBooking
 
 _SKIP_FIELD_KEYS = frozenset({
     "customer_name",
+    "customer_first_name",
+    "customer_last_name",
     "customer_email",
     "customer_phone",
     "customer_address",
@@ -14,10 +16,13 @@ _SKIP_FIELD_KEYS = frozenset({
     "customer_region",
     "customer_country",
     "customer_postal_zip",
+    "customer_email_optin",
+    "coachs_name",
+    "coach_notes",
     "request",
 })
 
-_PLAYER_FIELD_HINTS = ("player", "thrower", "participant", "guest", "member", "name")
+_PLAYER_FIELD_HINTS = ("player", "thrower", "participant", "guest", "member")
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -63,7 +68,22 @@ def _normalize_items(raw_items: Any) -> list[dict[str, Any]]:
             return [_as_dict(entry) for entry in item]
         if isinstance(item, dict):
             return [_as_dict(item)]
+        # API detail payloads use line-id keys: {"1": {...}, "2": {...}}
+        if any(isinstance(v, dict) for v in raw_items.values()):
+            return [_as_dict(v) for v in raw_items.values() if isinstance(v, dict)]
     return []
+
+
+def _booking_code(booking: dict[str, Any], booking_id: str) -> str | None:
+    code = _pick_str(booking, "code")
+    if code:
+        return code
+    # Checkfront API 3.0 booking detail uses `id` for the human booking code
+    # (e.g. "YVXL-200626") while `booking_id` is the numeric id.
+    candidate = _pick_str(booking, "id")
+    if candidate and candidate != booking_id and not candidate.isdigit():
+        return candidate
+    return None
 
 
 def _split_name_list(value: str) -> list[str]:
@@ -74,6 +94,8 @@ def _split_name_list(value: str) -> list[str]:
 def _looks_like_player_field(key: str) -> bool:
     lowered = key.casefold()
     if lowered in _SKIP_FIELD_KEYS:
+        return False
+    if lowered.startswith("customer_"):
         return False
     return any(hint in lowered for hint in _PLAYER_FIELD_HINTS)
 
@@ -118,16 +140,20 @@ def _parse_booking_record(
 ) -> CheckfrontBooking | None:
     attrs = _as_dict(booking.get("@attributes"))
     booking_id = _pick_str(attrs, "booking_id") or _pick_str(booking, "booking_id")
-    code = _pick_str(booking, "code")
+    if not booking_id:
+        return None
+    code = _booking_code(booking, booking_id)
     status = (_pick_str(booking, "status", "status_id") or "").upper()
-    if not booking_id or not code:
+    if not code:
         return None
 
     customer = _as_dict(booking.get("customer"))
     fields = _as_dict(booking.get("fields"))
+    meta = _as_dict(booking.get("meta"))
     customer_name = (
         _pick_str(customer, "name", "customer_name")
         or _pick_str(fields, "customer_name", "name")
+        or _pick_str(meta, "customer_name", "name")
         or _pick_str(booking, "customer_name")
     )
     if not customer_name:
@@ -143,7 +169,11 @@ def _parse_booking_record(
 
     for item in items:
         item_attrs = _as_dict(item.get("@attributes"))
-        item_id = _pick_str(item_attrs, "item_id") or _pick_str(item, "item_id")
+        item_id = (
+            _pick_str(item_attrs, "item_id")
+            or _pick_str(item, "item_id")
+            or _pick_str(item, "id")
+        )
         sku = _pick_str(item, "sku")
         if item_id:
             item_ids.append(item_id)
@@ -155,7 +185,7 @@ def _parse_booking_record(
             start_date = item_start
 
     configured_keys = player_field_keys or []
-    extra_names = _extract_extra_player_names(fields, configured_keys)
+    extra_names = _extract_extra_player_names({**meta, **fields}, configured_keys)
 
     return CheckfrontBooking(
         booking_id=booking_id,
