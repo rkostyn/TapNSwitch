@@ -76,7 +76,7 @@
 
   // The score panels do double duty: during a tie breaker they record the
   // sudden-death throws; otherwise they score the round on display.
-  // payload = { points: number, clutch: boolean }
+  // payload = { points: number, clutch: boolean, drop: boolean }
   function routeScore(player, payload) {
     if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, payload)
     else applyScore(player, payload)
@@ -98,7 +98,11 @@
   const player2Disabled = computed(() => throws2.value > throws1.value)
   const player1ClutchAvailable = computed(() => throws1.value === THROWS - 1)
   const player2ClutchAvailable = computed(() => throws2.value === THROWS - 1)
-  const gameOver = computed(() => roundComplete.value && currentRound.value === props.totalRounds)
+  // Best-of match: the game ends when a player clinches a majority of the
+  // rounds, or when every round has been played.
+  const gameOver = computed(() =>
+    roundComplete.value && (currentRound.value === props.totalRounds || clinched.value)
+  )
 
   // Alternating-throw rules only gate the live round; past rounds edit freely.
   // During a tie breaker a side locks once its throw for the current attempt is in.
@@ -132,6 +136,24 @@
 
   const sum = arr => arr.reduce((a, s) => a + (s ? s.value : 0), 0)
 
+  // Rounds won so far (the live round counts once it is complete). A majority
+  // clinches the best-of match — 3 of 5, 4 of 7, etc.
+  const clinchTarget = computed(() => Math.floor(props.totalRounds / 2) + 1)
+  const roundWins = computed(() => {
+    const rounds = [...completedRounds.value]
+    if (roundComplete.value) rounds.push({ scores1: scores1.value, scores2: scores2.value })
+    let p1 = 0, p2 = 0
+    for (const r of rounds) {
+      const t1 = sum(r.scores1), t2 = sum(r.scores2)
+      if (t1 > t2) p1++
+      else if (t2 > t1) p2++
+    }
+    return { p1, p2 }
+  })
+  const clinched = computed(() =>
+    roundWins.value.p1 >= clinchTarget.value || roundWins.value.p2 >= clinchTarget.value
+  )
+
   const allRoundRows = computed(() =>
     Array.from({ length: props.totalRounds }, (_, i) => {
       const roundNum = i + 1
@@ -151,11 +173,8 @@
 
   const overallWinner = computed(() => {
     if (!gameOver.value) return null
-    const last = { scores1: scores1.value, scores2: scores2.value }
-    const all = [...completedRounds.value, last]
-    const wins1 = all.filter(r => sum(r.scores1) > sum(r.scores2)).length
-    const wins2 = all.filter(r => sum(r.scores2) > sum(r.scores1)).length
-    return wins1 > wins2 ? props.player1Name : wins2 > wins1 ? props.player2Name : 'tie'
+    const { p1, p2 } = roundWins.value
+    return p1 > p2 ? props.player1Name : p2 > p1 ? props.player2Name : 'tie'
   })
 
   // --- Tie breaker -----------------------------------------------------------
@@ -211,7 +230,7 @@
     const arr = player === 1 ? tb.s1 : tb.s2
     const idx = arr.length - 1
     if (arr[idx] !== null) return
-    const entry = { value: payload.points, clutch: payload.clutch }
+    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
     arr[idx] = entry
     syncEntry(entry, player, null, tiebreakSeq())
     if (tb.s1[idx] !== null && tb.s2[idx] !== null) resolveTiebreakAttempt()
@@ -246,7 +265,7 @@
 
   function applyScore(player, payload) {
     if (!payload || typeof payload.points !== 'number') return
-    const entry = { value: payload.points, clutch: !!payload.clutch }
+    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
 
     const arr = player === 1 ? displayScores1.value : displayScores2.value
     let oldEntry = null
@@ -470,13 +489,13 @@
     return scores.reduce((s, x) => s + (x ? x.value : 0), 0)
   }
 
-  // Keyboard scoring: number keys 0–5 record a regular throw for the left
+  // Keyboard scoring: number keys 0, 1, 3 and 5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
   function handleKeydown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const el = e.target
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-    if (!/^[0-5]$/.test(e.key)) return
+    if (!/^[0135]$/.test(e.key)) return
     const payload = { points: parseInt(e.key), clutch: false }
     if (!leftDisabled.value) applyScoreLeft(payload)
     else if (!rightDisabled.value) applyScoreRight(payload)
@@ -586,7 +605,7 @@
           <span v-else-if="tiebreakInProgress" class="tiebreak-hint">
             <strong>Sudden death — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }}.</strong>
             <template v-if="tiebreak.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
-            <template v-else> Tap Clutch, then score 5, 6, 7 or 0. Three misses each drops back to bulls.</template>
+            <template v-else> Tap Clutch, then score 7 or 0. Three misses each drops back to bulls.</template>
           </span>
           <button v-else-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
             Drawn — Start Tie Breaker
