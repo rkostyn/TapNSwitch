@@ -366,3 +366,12 @@ export async function getThrows(criteria: { matchId?: string; roundId?: string; 
 export async function deleteThrow(throwId: string): Promise<void> {
   await http.delete(`/throw/${throwId}`)
 }
+
+export async function putTvSnapshot(snapshot: Record<string, unknown>): Promise<void> {
+  await http.put('/tv/snapshot', snapshot)
+}
+
+export async function getTvSnapshot<T = Record<string, unknown> | null>(): Promise<T | null> {
+  const { data } = await http.get('/tv/snapshot')
+  return data ?? null
+}

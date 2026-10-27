@@ -26,6 +26,7 @@ export default defineConfig({
       '/throw':  { target: API_TARGET, changeOrigin: true },
       '/player': { target: API_TARGET, changeOrigin: true },
       '/lanes':  { target: API_TARGET, changeOrigin: true },
+      '/tv':     { target: API_TARGET, changeOrigin: true },
       '/integrations': { target: API_TARGET, changeOrigin: true },
     },
   },

@@ -3,15 +3,19 @@
   import UrbanScore from './UrbanScore.vue'
   import { GHOST_PLAYER_ID } from '../config'
   import { arenaLabel } from '../venue'
+  import { publishTvSnapshot } from '../displaySync'
   import {
     startRound as apiStartRound,
     submitThrow,
     deleteThrow,
     getThrows,
     getRoundsByMatch,
+    getMatchesByEvent,
+    putTvSnapshot,
     finishMatch,
     unlockMatch,
   } from '../api'
+  import { nextUpMatch } from '../nextMatch'
 
   const props = defineProps(['player1Name', 'player2Name', 'totalRounds', 'matchContext'])
   const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone'])
@@ -36,6 +40,7 @@
   const roundIdBySeq = ref({}) // round sequence -> round_id on the server
   const syncError = ref('')
   const finishing = ref(false)
+  const nextMatch = ref(null)
 
   // Scroll container for the score lines — kept pinned to the bottom as tie-break
   // attempts pile up past the visible five slots
@@ -99,10 +104,9 @@
   const player2Disabled = computed(() => throws2.value > throws1.value)
   const player1ClutchAvailable = computed(() => throws1.value === THROWS - 1)
   const player2ClutchAvailable = computed(() => throws2.value === THROWS - 1)
-  // Best-of match: the game ends when a player clinches a majority of the
-  // rounds, or when every round has been played.
+  // Every configured round is played. A 2–0 lead still goes to round 3.
   const gameOver = computed(() =>
-    roundComplete.value && (currentRound.value === props.totalRounds || clinched.value)
+    roundComplete.value && currentRound.value === props.totalRounds
   )
 
   // Alternating-throw rules only gate the live round; past rounds edit freely.
@@ -137,9 +141,6 @@
 
   const sum = arr => arr.reduce((a, s) => a + (s ? s.value : 0), 0)
 
-  // Rounds won so far (the live round counts once it is complete). A majority
-  // clinches the best-of match — 3 of 5, 4 of 7, etc.
-  const clinchTarget = computed(() => Math.floor(props.totalRounds / 2) + 1)
   const roundWins = computed(() => {
     const rounds = [...completedRounds.value]
     if (roundComplete.value) rounds.push({ scores1: scores1.value, scores2: scores2.value })
@@ -151,9 +152,6 @@
     }
     return { p1, p2 }
   })
-  const clinched = computed(() =>
-    roundWins.value.p1 >= clinchTarget.value || roundWins.value.p2 >= clinchTarget.value
-  )
 
   const allRoundRows = computed(() =>
     Array.from({ length: props.totalRounds }, (_, i) => {
@@ -444,6 +442,65 @@
 
   watch(() => props.matchContext, () => { resetGame() }, { immediate: true })
 
+  function packThrows(scores) {
+    return (scores ?? []).map(entry => (entry ? { value: entry.value, drop: !!entry.drop } : null))
+  }
+
+  function publishTv() {
+    const swapped = showTiebreak.value ? false : (currentRound.value - 1) % 2 === 1
+    const s1 = showTiebreak.value ? padTiebreak(tiebreak.value.s1) : scores1.value
+    const s2 = showTiebreak.value ? padTiebreak(tiebreak.value.s2) : scores2.value
+    const payload = {
+      player1Name: props.player1Name,
+      player2Name: props.player2Name,
+      leftName: swapped ? props.player2Name : props.player1Name,
+      rightName: swapped ? props.player1Name : props.player2Name,
+      leftScores: packThrows(swapped ? s2 : s1),
+      rightScores: packThrows(swapped ? s1 : s2),
+      totalRounds: props.totalRounds,
+      displayRound: currentRound.value,
+      roundRows: allRoundRows.value,
+      eventName: props.matchContext?.eventName ?? '',
+      arenaLabel: props.matchContext?.arenaIds?.length
+        ? arenaLabel(props.matchContext.arenaIds)
+        : (props.matchContext?.arenaLabel ?? ''),
+      gameWinner: gameWinner.value,
+      showTiebreak: showTiebreak.value,
+      nextMatch: nextMatchReady.value ? nextMatch.value : null,
+    }
+    publishTvSnapshot(payload)
+    putTvSnapshot(payload).catch(() => {})
+  }
+
+  const nextMatchReady = computed(() =>
+    completedRounds.value.length >= 2 || (currentRound.value >= 2 && roundComplete.value)
+  )
+
+  async function refreshNextMatch() {
+    const eventId = props.matchContext?.eventId
+    if (!eventId) {
+      nextMatch.value = null
+      return
+    }
+    try {
+      const upcoming = nextUpMatch(await getMatchesByEvent(eventId), matchId.value)
+      nextMatch.value = upcoming
+        ? { player1: upcoming.player_1_id, player2: upcoming.player_2_id }
+        : null
+    } catch {
+      nextMatch.value = null
+    }
+  }
+
+  watch(
+    [() => props.player1Name, () => props.player2Name, () => props.totalRounds, () => props.matchContext,
+      currentRound, scores1, scores2, completedRounds, tiebreak, showTiebreak, gameWinner, allRoundRows, nextMatch, nextMatchReady],
+    publishTv,
+    { deep: true },
+  )
+
+  watch(() => props.matchContext?.eventId, refreshNextMatch, { immediate: true })
+
   // Leave a finished match after editing its scores — the API recomputes the
   // winner on every edit, so there is nothing to re-finish.
   async function backToEvent() {
@@ -521,7 +578,6 @@
 
     <div class="tab-bar">
       <button class="tab-btn" :class="{ active: activeTab === 'p1' }" @click="activeTab = 'p1'">{{ leftName }}</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'scores' }" @click="activeTab = 'scores'">Scores</button>
       <button class="tab-btn" :class="{ active: activeTab === 'p2' }" @click="activeTab = 'p2'">{{ rightName }}</button>
     </div>
 
@@ -847,6 +903,7 @@
   }
 
   .panel-scores {
+    display: flex;
     width: 100%;
     flex-direction: column;
     align-items: center;
