@@ -2,8 +2,12 @@
   import { ref, nextTick, computed } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
+  import TvScoreView from './components/TvScoreView.vue'
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './config'
   import { arenaLabel } from './venue'
+  import { readDisplayRoute } from './displayRoute'
+
+  const displayRoute = readDisplayRoute()
 
   const displayName = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
 
@@ -79,7 +83,8 @@
 </script>
 
 <template>
-  <div class="page">
+  <TvScoreView v-if="displayRoute.isDisplay" :arenaId="displayRoute.arenaId" />
+  <div v-else class="page">
     <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">

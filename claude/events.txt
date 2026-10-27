@@ -1,3 +1,6 @@
+As a user I want a TV scoreboard that shows only the match (names on the correct sides, throws, and rounds) with no Lanes / Events / bookings chrome.
+  - Arena TVs are in the air, so staff AirPlay the iPad. The iPad scoring screen is what the TV shows.
+  - Lanes, Events, and bookings stay behind Menu so AirPlay is the scoreboard, not the admin bar.
 As a user I want the ability to add player to an event. 
 As a user I want to mark throwers as “late”, delaying the games until later.
 As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:

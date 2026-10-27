@@ -314,6 +314,19 @@
   font-size: 0.75rem;
 }
 
+.tv-link {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: #93c5fd;
+  border: 1px solid #1d4ed8;
+  border-radius: 999px;
+  text-decoration: none;
+}
+
 .selected-hint {
   margin: 10px 0 0;
   font-size: 0.8rem;
