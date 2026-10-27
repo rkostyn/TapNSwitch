@@ -2,6 +2,7 @@
   import { ref, computed, onMounted } from 'vue'
   import { getLaneBoard, assignEventArenas } from '../api'
   import { arenaLabel } from '../venue'
+  import { displayUrl } from '../displayRoute'
 
   const emit = defineEmits(['close', 'openEvent'])
 
@@ -207,6 +208,13 @@
               <span v-if="arena.group" class="arena-group">
                 {{ groupTitle(arena.group) }}
                 <span class="arena-group-meta">{{ arena.group.players.length }} players</span>
+                <a
+                  class="tv-link"
+                  :href="displayUrl(arena.arena_id)"
+                  target="tapnswitch-tv"
+                  rel="noopener"
+                  @click.stop
+                >TV</a>
               </span>
               <span v-else class="arena-open">Open</span>
               <span v-if="isSuggested(arena, selected) && !arena.group" class="suggest-tag">Checkfront hint</span>
@@ -312,6 +320,19 @@
 .waiting-need,
 .arena-group-meta {
   font-size: 0.75rem;
+}
+
+.tv-link {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: #93c5fd;
+  border: 1px solid #1d4ed8;
+  border-radius: 999px;
+  text-decoration: none;
 }
 
 .selected-hint {

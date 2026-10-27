@@ -194,6 +194,13 @@
 }
 .lanes-btn:hover { background: #3b2800; }
 
+.tv-btn {
+  background: transparent;
+  color: #93c5fd;
+  border: 1px solid #1d4ed8;
+}
+.tv-btn:hover { background: #0b1f3a; }
+
 .arena-chip-row {
   display: inline-flex;
   flex-wrap: wrap;

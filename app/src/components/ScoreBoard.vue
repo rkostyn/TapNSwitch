@@ -3,6 +3,7 @@
   import UrbanScore from './UrbanScore.vue'
   import { GHOST_PLAYER_ID } from '../config'
   import { arenaLabel } from '../venue'
+  import { publishTvSnapshot } from '../displaySync'
   import {
     startRound as apiStartRound,
     submitThrow,
@@ -443,6 +444,40 @@
   }
 
   watch(() => props.matchContext, () => { resetGame() }, { immediate: true })
+
+  function packThrows(scores) {
+    return (scores ?? []).map(entry => (entry ? { value: entry.value, drop: !!entry.drop } : null))
+  }
+
+  function publishTv() {
+    const swapped = showTiebreak.value ? false : (currentRound.value - 1) % 2 === 1
+    const s1 = showTiebreak.value ? padTiebreak(tiebreak.value.s1) : scores1.value
+    const s2 = showTiebreak.value ? padTiebreak(tiebreak.value.s2) : scores2.value
+    publishTvSnapshot({
+      player1Name: props.player1Name,
+      player2Name: props.player2Name,
+      leftName: swapped ? props.player2Name : props.player1Name,
+      rightName: swapped ? props.player1Name : props.player2Name,
+      leftScores: packThrows(swapped ? s2 : s1),
+      rightScores: packThrows(swapped ? s1 : s2),
+      totalRounds: props.totalRounds,
+      displayRound: currentRound.value,
+      roundRows: allRoundRows.value,
+      eventName: props.matchContext?.eventName ?? '',
+      arenaLabel: props.matchContext?.arenaIds?.length
+        ? arenaLabel(props.matchContext.arenaIds)
+        : (props.matchContext?.arenaLabel ?? ''),
+      gameWinner: gameWinner.value,
+      showTiebreak: showTiebreak.value,
+    })
+  }
+
+  watch(
+    [() => props.player1Name, () => props.player2Name, () => props.totalRounds, () => props.matchContext,
+      currentRound, scores1, scores2, completedRounds, tiebreak, showTiebreak, gameWinner, allRoundRows],
+    publishTv,
+    { deep: true },
+  )
 
   // Leave a finished match after editing its scores — the API recomputes the
   // winner on every edit, so there is nothing to re-finish.
