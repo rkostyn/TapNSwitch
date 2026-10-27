@@ -10,7 +10,3 @@ export function readDisplayRoute(): { isDisplay: boolean; arenaId: string | null
 export function displayUrl(arenaId?: string | null): string {
   return arenaId ? `/display/${arenaId}` : '/display'
 }
-
-export function openDisplayWindow(arenaId?: string | null): void {
-  window.open(displayUrl(arenaId), 'tapnswitch-tv', 'noopener')
-}

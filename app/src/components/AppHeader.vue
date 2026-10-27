@@ -6,7 +6,6 @@
   import EventsModal from './EventsModal.vue'
   import LanesBoard from './LanesBoard.vue'
   import { arenaLabel } from '../venue'
-  import { openDisplayWindow } from '../displayRoute'
 
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
@@ -14,6 +13,7 @@
   const emit = defineEmits(['openConfig', 'selectMatch', 'selectGroup'])
 
   const showLogin = ref(false)
+  const showMenu = ref(false)
   const username = ref('')
   const password = ref('')
   const error = ref('')
@@ -233,64 +233,64 @@
 
 <template>
   <header class="app-header">
-    <div class="header-left">
-      <button v-if="loggedInUser" class="auth-btn lanes-btn" @click="openLanes">Lanes</button>
-      <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
-      <button
-        class="auth-btn tv-btn"
-        title="Open the TV scoreboard. AirPlay or HDMI that window — this iPad keeps Lanes and Events."
-        @click="openDisplayWindow()"
-      >TV</button>
-      <label v-if="loggedInUser" class="group-picker">
-        <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
-        <input
-          class="group-search-input"
-          v-model="groupSearch"
-          type="search"
-          placeholder="Search booking or player…"
-          :disabled="groupsLoading"
-          @input="onGroupSearchInput"
-        />
-        <select
-          class="group-picker-select"
-          v-model="selectedGroupId"
-          @change="onGroupChange"
-          :disabled="groupsLoading && checkfrontGroups.length === 0"
-        >
-          <option value="">
-            {{ groupsLoading ? 'Loading today…' : (checkfrontGroups.length ? 'Select booking…' : (groupSearch ? 'No matches today' : 'No bookings today')) }}
-          </option>
-          <option v-for="group in checkfrontGroups" :key="group.event_id" :value="group.event_id">
-            {{ groupLabel(group) }}
-          </option>
-        </select>
-      </label>
-      <button
-        v-if="loggedInUser"
-        class="auth-btn sync-btn"
-        @click="syncCheckfront"
-        :disabled="syncLoading"
-        :title="checkfrontStatus?.configured === false
-          ? 'Checkfront API credentials may not be set on the server — tap to retry'
-          : 'Pull today\'s bookings from Checkfront now'"
-      >
-        {{ syncLoading ? 'Syncing…' : 'Sync' }}
-      </button>
-      <span v-if="loggedInUser && syncMessage" class="sync-message" :title="syncMessage">{{ syncMessage }}</span>
-    </div>
-    <div class="header-right">
-      <template v-if="loggedInUser">
-        <span class="client-id-chip" :title="`This device: ${clientId}`">{{ shortClientId }}</span>
-        <span class="logged-in-user">{{ loggedInUser }}</span>
-        <button class="auth-btn logout-btn" @click="logout">Log Out</button>
-      </template>
-      <template v-else>
-        <button class="auth-btn login-btn" @click="openLogin">Log In</button>
-        <button class="auth-btn register-btn">Register</button>
-      </template>
-      <button class="config-btn" aria-label="Match settings" @click="emit('openConfig')">&#9881;</button>
-    </div>
+    <button
+      v-if="loggedInUser"
+      class="menu-btn"
+      type="button"
+      aria-label="Menu"
+      @click="showMenu = true"
+    >Menu</button>
+    <template v-else>
+      <button class="auth-btn login-btn" @click="openLogin">Log In</button>
+    </template>
+    <button class="config-btn" aria-label="Match settings" @click="emit('openConfig')">&#9881;</button>
   </header>
+
+  <Teleport to="body">
+    <div v-if="showMenu" class="modal-overlay" @click.self="showMenu = false">
+      <div class="modal menu-sheet" role="dialog" aria-labelledby="staff-menu-title">
+        <h2 id="staff-menu-title" class="modal-title">Staff</h2>
+        <button class="modal-submit" type="button" @click="showMenu = false; openLanes()">Lanes</button>
+        <button class="modal-submit" type="button" @click="showMenu = false; openEvents()">Events</button>
+        <label class="group-picker">
+          <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
+          <input
+            class="group-search-input"
+            v-model="groupSearch"
+            type="search"
+            placeholder="Search booking or player…"
+            :disabled="groupsLoading"
+            @input="onGroupSearchInput"
+          />
+          <select
+            class="group-picker-select"
+            v-model="selectedGroupId"
+            @change="onGroupChange"
+            :disabled="groupsLoading && checkfrontGroups.length === 0"
+          >
+            <option value="">
+              {{ groupsLoading ? 'Loading today…' : (checkfrontGroups.length ? 'Select booking…' : (groupSearch ? 'No matches today' : 'No bookings today')) }}
+            </option>
+            <option v-for="group in checkfrontGroups" :key="group.event_id" :value="group.event_id">
+              {{ groupLabel(group) }}
+            </option>
+          </select>
+        </label>
+        <button
+          class="auth-btn sync-btn"
+          type="button"
+          :disabled="syncLoading"
+          @click="syncCheckfront"
+        >{{ syncLoading ? 'Syncing…' : 'Sync' }}</button>
+        <p v-if="syncMessage" class="sync-message">{{ syncMessage }}</p>
+        <p class="menu-user">{{ loggedInUser }} · {{ shortClientId }}</p>
+        <div class="modal-actions">
+          <button class="modal-cancel" type="button" @click="logout(); showMenu = false">Log Out</button>
+          <button class="modal-submit" type="button" @click="showMenu = false">Done</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <EventsModal
     v-if="showEvents"
@@ -349,28 +349,43 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 20px;
-  min-height: 56px;
+  padding: 8px 12px;
+  min-height: 52px;
   background: #13151c;
   border-bottom: 1px solid #1e293b;
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+.menu-btn {
+  min-height: var(--touch-min);
+  padding: 8px 14px;
+  border: 1px solid #334155;
+  border-radius: var(--radius-sm);
+  background: #1e293b;
+  color: #e2e8f0;
+  font: inherit;
+  font-weight: bold;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  min-width: 0;
-  flex: 1 1 auto;
+.menu-sheet {
+  width: min(420px, 94vw);
+  gap: 12px;
+}
+
+.menu-sheet .group-picker {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.menu-sheet .group-search-input,
+.menu-sheet .group-picker-select {
+  width: 100%;
+  max-width: none;
+}
+
+.menu-user {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
 }
 
 .group-picker {

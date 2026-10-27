@@ -2,7 +2,6 @@
   import { ref, computed, onMounted } from 'vue'
   import { getLaneBoard, assignEventArenas } from '../api'
   import { arenaLabel } from '../venue'
-  import { displayUrl } from '../displayRoute'
 
   const emit = defineEmits(['close', 'openEvent'])
 
@@ -208,13 +207,6 @@
               <span v-if="arena.group" class="arena-group">
                 {{ groupTitle(arena.group) }}
                 <span class="arena-group-meta">{{ arena.group.players.length }} players</span>
-                <a
-                  class="tv-link"
-                  :href="displayUrl(arena.arena_id)"
-                  target="tapnswitch-tv"
-                  rel="noopener"
-                  @click.stop
-                >TV</a>
               </span>
               <span v-else class="arena-open">Open</span>
               <span v-if="isSuggested(arena, selected) && !arena.group" class="suggest-tag">Checkfront hint</span>
