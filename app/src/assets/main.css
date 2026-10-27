@@ -47,8 +47,10 @@
 .modal {
   background: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
-  padding: 32px;
-  width: 360px;
+  padding: clamp(20px, 4vw, 32px);
+  width: min(360px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -83,7 +85,8 @@
 }
 
 .modal-input {
-  padding: 8px 12px;
+  padding: 10px 12px;
+  min-height: var(--touch-min);
   font-size: 1rem;
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-sm);
@@ -94,7 +97,7 @@
   box-sizing: border-box;
 }
 
-.modal-input:focus { border-color: var(--color-purple-focus); }
+.modal-input:focus-visible { border-color: var(--color-purple-focus); }
 .modal-input:disabled { opacity: 0.5; }
 
 .modal-error,
@@ -113,7 +116,8 @@
 
 /* === Modal action buttons === */
 .modal-cancel {
-  padding: 8px 18px;
+  padding: 10px 18px;
+  min-height: var(--touch-min);
   font-size: 0.95rem;
   background: var(--color-bg-secondary);
   color: var(--color-muted);
@@ -125,7 +129,8 @@
 .modal-cancel:hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
 
 .modal-submit {
-  padding: 8px 18px;
+  padding: 10px 18px;
+  min-height: var(--touch-min);
   font-size: 0.95rem;
   font-weight: bold;
   background: var(--color-purple-strong);
@@ -145,7 +150,8 @@
 
 /* === Auth / header pill buttons === */
 .auth-btn {
-  padding: 6px 16px;
+  padding: 10px 16px;
+  min-height: var(--touch-min);
   font-size: 0.875rem;
   font-weight: bold;
   letter-spacing: 0.5px;
@@ -194,7 +200,8 @@
 /* Outline pill (add-player and similar small actions) */
 .outline-pill-btn {
   align-self: flex-start;
-  padding: 5px 12px;
+  padding: 8px 14px;
+  min-height: 36px;
   font-size: 0.8rem;
   font-weight: bold;
   background: transparent;

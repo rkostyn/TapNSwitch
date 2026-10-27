@@ -56,11 +56,17 @@
     clutchMode.value = false
     emit('score', { points: item.value, clutch, drop: !!item.drop })
   }
+
+  function buttonLabel(item) {
+    if (item.disabled) return 'Unavailable'
+    const mode = clutchMode.value ? 'clutch ' : ''
+    return `${mode}Score ${item.text}`
+  }
 </script>
 
 <template>
   <div class="urban-score">
-    <div class="grid-container">
+    <div class="grid-container" role="group" :aria-label="`${playerName} scoring pad`">
       <div v-for="(item, idx) in displayButtons" :key="idx" class="grid-child">
         <button
           v-if="item.clutch"
@@ -74,6 +80,7 @@
           class="button-circle"
           :class="`color-${item.color}`"
           :disabled="props.disabled || item.disabled"
+          :aria-label="buttonLabel(item)"
           @click="pick(item)"
         >{{ item.text }}</button>
       </div>
@@ -91,8 +98,9 @@
 
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 3vw, 20px);
+  width: min(100%, 260px);
 }
 
 .grid-child {
@@ -105,20 +113,22 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  width: 106px;
-  height: 106px;
+  width: clamp(88px, 24vw, 120px);
+  height: clamp(88px, 24vw, 120px);
   border-radius: 100%;
   border: none;
   font-family: inherit;
-  font-size: 1.32rem;
+  font-size: clamp(1.1rem, 3.5vw, 1.45rem);
   font-weight: bold;
   color: #fff;
   cursor: pointer;
 }
 
-.button-circle:active {
-  transition: 0.3s;
-  transform: scale(1.13);
+@media (prefers-reduced-motion: no-preference) {
+  .button-circle:active {
+    transition: 0.3s;
+    transform: scale(1.08);
+  }
 }
 
 .button-circle:disabled {

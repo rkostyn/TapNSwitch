@@ -136,7 +136,16 @@
               {{ eventSearch ? 'No matches today.' : (events.length === 0 ? 'No events today.' : 'No open events today.') }}
             </div>
             <ul v-else class="event-list">
-              <li v-for="event in visibleEvents" :key="event.event_id" class="event-item" @click="openEvent(event)">
+              <li
+                v-for="event in visibleEvents"
+                :key="event.event_id"
+                class="event-item"
+                role="button"
+                tabindex="0"
+                @click="openEvent(event)"
+                @keydown.enter.prevent="openEvent(event)"
+                @keydown.space.prevent="openEvent(event)"
+              >
                 <span class="event-name">
                   {{ event.event_name }}
                   <span v-if="event.source === 'checkfront'" class="checkfront-badge">Checkfront</span>
@@ -209,13 +218,18 @@
 
 <style scoped>
 .modal {
-  width: 420px;
+  width: min(420px, 94vw);
   max-height: 85vh;
   overflow-y: auto;
 }
 
 .modal.wide {
   width: min(860px, 94vw);
+}
+
+.event-item[role="button"]:focus-visible {
+  outline: 2px solid var(--color-purple-focus);
+  outline-offset: 2px;
 }
 
 .event-item {
