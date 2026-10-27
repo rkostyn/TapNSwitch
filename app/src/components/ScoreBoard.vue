@@ -2,6 +2,7 @@
   import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import UrbanScore from './UrbanScore.vue'
   import { GHOST_PLAYER_ID } from '../config'
+  import { arenaLabel } from '../venue'
   import {
     startRound as apiStartRound,
     submitThrow,
@@ -510,7 +511,10 @@
 <template>
   <div class="scoreboard-root">
     <div class="round-bar">
-      <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
+      <span v-if="matchContext" class="event-banner">
+        {{ matchContext.eventName }}
+        <span v-if="matchContext.arenaIds?.length" class="event-arenas">{{ arenaLabel(matchContext.arenaIds) }}</span>
+      </span>
       <span v-if="matchContext?.arenaLabel" class="lane-banner">{{ matchContext.arenaLabel }}</span>
       <span v-if="syncError" class="sync-error">{{ syncError }}</span>
     </div>
@@ -725,6 +729,12 @@
   text-transform: uppercase;
   letter-spacing: 2px;
   color: #34d399;
+}
+
+.event-arenas {
+  margin-left: 8px;
+  color: #fbbf24;
+  letter-spacing: 1px;
 }
 
 .lane-banner {

@@ -22,6 +22,7 @@ class LateUpdate(BaseModel):
 class SwissConfigUpdate(BaseModel):
     swiss_matches_per_player: int = Field(ge=1, le=20)
     swiss_rounds_per_match: int = Field(ge=1, le=10)
+    pairing_style: Optional[Literal["round_robin", "swiss"]] = None
 
 
 class SwissStanding(BaseModel):
@@ -47,8 +48,14 @@ class Event(BaseModel):
     checkfront_booking_code: Optional[str] = None
     checkfront_session_key: Optional[str] = None
     checkfront_booking_ids: list[str] = []
+    checkfront_item_skus: list[str] = []
+    checkfront_qty: int = 1
+    suggested_arena_count: int = 1
+    suggested_arena_ids: list[str] = []
+    arena_ids: list[str] = []
     start_timestamp: Optional[datetime] = None
     timestamp: datetime
+    pairing_style: Literal["round_robin", "swiss"] = "round_robin"
     swiss_matches_per_player: int = 2
     swiss_rounds_per_match: int = 2
     swiss_generated_at: Optional[datetime] = None

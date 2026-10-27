@@ -3,6 +3,7 @@ import os
 from app.integrations.checkfront.models import CheckfrontBooking
 from app.models.event import Event, EventCreate
 from app.repositories.event_repository import EventRepository
+from app.venue import guess_arena_ids, suggested_arena_count
 
 CHECKFRONT_CREATED_BY = "checkfront"
 DEFAULT_ACCEPT_STATUSES = {"PAID", "CONF", "PEND", "HOLD", "WAIT"}
@@ -18,6 +19,16 @@ def _configured_statuses() -> set[str]:
 def _group_mode() -> str:
     mode = (os.getenv("CHECKFRONT_GROUP_MODE") or "session").strip().lower()
     return mode if mode in {"booking", "session"} else "session"
+
+
+def _lane_hints(booking: CheckfrontBooking, players: list[str]) -> dict:
+    size = max(booking.qty, len(players))
+    return {
+        "checkfront_item_skus": booking.item_skus,
+        "checkfront_qty": booking.qty,
+        "suggested_arena_count": suggested_arena_count(size),
+        "suggested_arena_ids": guess_arena_ids(*booking.item_skus, booking.event_name),
+    }
 
 
 def _merge_players(existing: list[str], incoming: list[str]) -> list[str]:
@@ -50,6 +61,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
             fields: dict = {
                 "players": updated_players,
                 "checkfront_booking_code": booking.code,
+                **_lane_hints(booking, updated_players),
             }
             if booking.start_date:
                 fields["start_timestamp"] = booking.start_date
@@ -60,11 +72,16 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
             players=players,
             start_timestamp=booking.start_date,
         )
+        hints = _lane_hints(booking, players)
         return await repo.create_checkfront_event(
             event_create,
             booking_id=booking.booking_id,
             booking_code=booking.code,
             session_key=booking.session_key,
+            item_skus=hints["checkfront_item_skus"],
+            qty=hints["checkfront_qty"],
+            suggested_count=hints["suggested_arena_count"],
+            suggested_ids=hints["suggested_arena_ids"],
         )
 
     session_key = booking.session_key
@@ -83,6 +100,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
                     "players": updated_players,
                     "checkfront_booking_ids": booking_ids,
                     "checkfront_booking_code": booking.code,
+                    **_lane_hints(booking, updated_players),
                 },
             )
 
@@ -96,6 +114,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
             {
                 "players": updated_players,
                 "checkfront_booking_code": booking.code,
+                **_lane_hints(booking, updated_players),
             },
         )
 
@@ -104,9 +123,14 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
         players=players,
         start_timestamp=booking.start_date,
     )
+    hints = _lane_hints(booking, players)
     return await repo.create_checkfront_event(
         event_create,
         booking_id=booking.booking_id,
         booking_code=booking.code,
         session_key=session_key,
+        item_skus=hints["checkfront_item_skus"],
+        qty=hints["checkfront_qty"],
+        suggested_count=hints["suggested_arena_count"],
+        suggested_ids=hints["suggested_arena_ids"],
     )

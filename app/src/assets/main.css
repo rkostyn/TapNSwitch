@@ -187,6 +187,31 @@
 }
 .events-btn:hover { background: var(--color-success-soft); }
 
+.lanes-btn {
+  background: transparent;
+  color: #fbbf24;
+  border: 1px solid #854d0e;
+}
+.lanes-btn:hover { background: #3b2800; }
+
+.arena-chip-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.arena-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 10px;
+}
+
 .sync-btn {
   background: transparent;
   color: var(--color-purple);

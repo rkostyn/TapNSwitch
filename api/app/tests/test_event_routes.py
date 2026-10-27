@@ -235,6 +235,20 @@ def _create_event(client, auth_token, players=None, **extra):
     return client.post("/event", json=payload, headers=auth_headers(auth_token)).json()
 
 
+def _set_swiss(client, auth_token, event_id, matches_per_player=2, rounds_per_match=2):
+    response = client.put(
+        f"/event/{event_id}/swiss-config",
+        json={
+            "swiss_matches_per_player": matches_per_player,
+            "swiss_rounds_per_match": rounds_per_match,
+            "pairing_style": "swiss",
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_add_player(client, auth_token):
     event = _create_event(client, auth_token)
     response = client.post(
@@ -353,8 +367,21 @@ def test_update_swiss_config(client, auth_token):
     assert response.json()["swiss_rounds_per_match"] == 1
 
 
+def test_generate_round_robin_is_default(client, auth_token):
+    event = _create_event(client, auth_token)
+    assert event["pairing_style"] == "round_robin"
+    matches = client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token)).json()
+    assert len(matches) == 6  # 4 players, everyone plays everyone once
+    counts = {}
+    for m in matches:
+        counts[m["player_1_id"]] = counts.get(m["player_1_id"], 0) + 1
+        counts[m["player_2_id"]] = counts.get(m["player_2_id"], 0) + 1
+    assert all(c == 3 for c in counts.values())
+
+
 def test_generate_swiss_matches(client, auth_token):
     event = _create_event(client, auth_token)
+    _set_swiss(client, auth_token, event["event_id"])
     response = client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token))
     assert response.status_code == 200
     matches = response.json()
@@ -385,6 +412,7 @@ def test_add_player_after_scores_appends_matches(client, auth_token):
     # appended and the already-scored matches are left untouched.
     event = _create_event(client, auth_token)
     event_id = event["event_id"]
+    _set_swiss(client, auth_token, event_id)
     matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
     _submit_round_throws(client, auth_token, matches[0], 1, 5, 1)
     scored_id = matches[0]["match_id"]
@@ -440,11 +468,7 @@ def test_generate_swiss_odd_imbalance_adds_ghost(client, auth_token):
     # 5 players x 1 match each is odd, so one player gets a ghost match
     event = _create_event(client, auth_token, players=["Alice", "Bob", "Carol", "Dan", "Eve"])
     event_id = event["event_id"]
-    client.put(
-        f"/event/{event_id}/swiss-config",
-        json={"swiss_matches_per_player": 1, "swiss_rounds_per_match": 2},
-        headers=auth_headers(auth_token),
-    )
+    _set_swiss(client, auth_token, event_id, matches_per_player=1, rounds_per_match=2)
     matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
     ghost_matches = [m for m in matches if m["player_2_id"] == "__ghost__"]
     assert len(ghost_matches) == 1
@@ -503,6 +527,7 @@ def _submit_round_throws(client, auth_token, match, round_seq, p1_points, p2_poi
 def test_swiss_scores_and_standings(client, auth_token):
     event = _create_event(client, auth_token, players=["Alice", "Bob"])
     event_id = event["event_id"]
+    _set_swiss(client, auth_token, event_id)
     matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
     # Alice dominates both matches
     for match in matches:

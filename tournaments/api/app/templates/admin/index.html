@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin</title>
+    <link rel="stylesheet" href="/static/admin.css?v=7">
+</head>
+<body>
+
+<header>
+    <h1>axes / admin</h1>
+    <div class="header-actions">
+        <a href="/admin/users/create">create user</a>
+        <a href="/admin/logout">logout</a>
+    </div>
+</header>
+
+<div class="grid">
+
+    <!-- EVENTS -->
+    <div class="col">
+        <div class="col-header">
+            Events
+            <a class="btn-add" href="/admin/events/create" title="New event">+</a>
+        </div>
+        <div class="col-body">
+            {% for row in "events" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/events/{{ row.event_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('events', '{{ row.event_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.event_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                {% if row.event_name %}<div class="detail">{{ row.event_name }}</div>{% endif %}
+                <div>
+                    {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                    {% if row.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No events found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- MATCHES -->
+    <div class="col">
+        <div class="col-header">
+            Matches
+            <button class="btn-add" onclick="openModal('match')" title="New match">+</button>
+        </div>
+        <div class="col-body">
+            {% for row in "matches" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/matches/{{ row.match_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('matches', '{{ row.match_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.match_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
+                <div>
+                    {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+                    {% if row.is_finished %}<span class="badge badge-finished">finished</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No matches found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- ROUNDS -->
+    <div class="col">
+        <div class="col-header">
+            Rounds
+            <button class="btn-add" onclick="openModal('round')" title="New round">+</button>
+        </div>
+        <div class="col-body">
+            {% for row in "rounds" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/rounds/{{ row.round_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('rounds', '{{ row.round_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.round_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">{{ row.player_1_id }} vs {{ row.player_2_id }}</div>
+                {% if row.is_locked %}<span class="badge badge-locked">locked</span>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No rounds found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- THROWS -->
+    <div class="col">
+        <div class="col-header">
+            Throws
+            <button class="btn-add" onclick="openModal('throw')" title="New throw">+</button>
+        </div>
+        <div class="col-body">
+            {% for row in "throws" | retrieve_x_latest(25, "timestamp") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/throws/{{ row.throw_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('throws', '{{ row.throw_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.throw_id }}</div>
+                <div class="ts">{{ row.timestamp | datetimeformat }}</div>
+                <div class="detail">player: {{ row.player_id }}</div>
+                <div class="detail">pts: {{ row.points }}</div>
+                <div>
+                    {% if row.is_drop %}<span class="badge badge-drop">drop</span>{% endif %}
+                    {% if row.clutch_called %}<span class="badge badge-clutch">clutch</span>{% endif %}
+                    {% if row.is_premier %}<span class="badge badge-premier">premier</span>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="entry ts">No throws found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- PLAYERS -->
+    <div class="col">
+        <div class="col-header">
+            Players
+            <button class="btn-add" onclick="openModal('player')" title="New player">+</button>
+        </div>
+        <div class="col-body">
+            {% for row in "players" | retrieve_x_latest(25, "created_at") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/players/{{ row.player_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('players', '{{ row.player_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.player_id }}</div>
+                <div class="detail">{{ row.player_name }}</div>
+                {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No players found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="col">
+        <div class="col-header">Users</div>
+        <div class="col-body">
+            {% for row in "users" | retrieve_x_latest(25, "created_at") %}
+            <div class="entry">
+                <div class="entry-actions">
+                    <a class="entry-info" href="/admin/users/{{ row.user_id }}">i</a>
+                    <button class="btn-delete" onclick="deleteDoc('users', '{{ row.user_id }}')">×</button>
+                </div>
+                <div class="id">{{ row.user_name }}</div>
+                <div class="detail">{{ row.email }}</div>
+                {% if row.created_at %}<div class="ts">{{ row.created_at | datetimeformat }}</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="entry ts">No users found.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+<!-- ============================================================
+     MODALS
+     ============================================================ -->
+
+<!-- New Match -->
+<div class="modal-backdrop" id="modal-match" onclick="if(event.target===this)closeModal('match')">
+    <div class="modal">
+        <div class="modal-title">New Match</div>
+        <div class="modal-error" id="modal-err-match"></div>
+        <form id="form-match" onsubmit="return false">
+            <div class="modal-field">
+                <label>Event ID <span style="color:#555">(optional)</span></label>
+                <input type="text" name="event_id" autocomplete="off">
+            </div>
+            <div class="modal-field">
+                <label>Player 1 ID</label>
+                <input type="text" name="player_1_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Player 2 ID</label>
+                <input type="text" name="player_2_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Sequence</label>
+                <input type="number" name="sequence" min="1" value="1" required>
+            </div>
+        </form>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal('match')">cancel</button>
+            <button class="btn-save" onclick="submitModal('match')">create</button>
+        </div>
+    </div>
+</div>
+
+<!-- New Round -->
+<div class="modal-backdrop" id="modal-round" onclick="if(event.target===this)closeModal('round')">
+    <div class="modal">
+        <div class="modal-title">New Round</div>
+        <div class="modal-error" id="modal-err-round"></div>
+        <form id="form-round" onsubmit="return false">
+            <div class="modal-field">
+                <label>Match ID</label>
+                <input type="text" name="match_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Player 1 ID</label>
+                <input type="text" name="player_1_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Player 2 ID</label>
+                <input type="text" name="player_2_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Sequence</label>
+                <input type="number" name="sequence" min="1" value="1" required>
+            </div>
+        </form>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal('round')">cancel</button>
+            <button class="btn-save" onclick="submitModal('round')">create</button>
+        </div>
+    </div>
+</div>
+
+<!-- New Throw -->
+<div class="modal-backdrop" id="modal-throw" onclick="if(event.target===this)closeModal('throw')">
+    <div class="modal">
+        <div class="modal-title">New Throw</div>
+        <div class="modal-error" id="modal-err-throw"></div>
+        <form id="form-throw" onsubmit="return false">
+            <div class="modal-field">
+                <label>Match ID</label>
+                <input type="text" name="match_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Round ID</label>
+                <input type="text" name="round_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Player ID</label>
+                <input type="text" name="player_id" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>Points</label>
+                <input type="number" name="points" value="0" required>
+            </div>
+            <div class="modal-field-check">
+                <input type="checkbox" name="clutch_called" id="chk-clutch">
+                <label for="chk-clutch">Clutch called</label>
+            </div>
+            <div class="modal-field-check">
+                <input type="checkbox" name="is_premier" id="chk-premier">
+                <label for="chk-premier">Premier</label>
+            </div>
+            <div class="modal-field-check">
+                <input type="checkbox" name="is_drop" id="chk-drop">
+                <label for="chk-drop">Drop</label>
+            </div>
+        </form>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal('throw')">cancel</button>
+            <button class="btn-save" onclick="submitModal('throw')">create</button>
+        </div>
+    </div>
+</div>
+
+<!-- New Player -->
+<div class="modal-backdrop" id="modal-player" onclick="if(event.target===this)closeModal('player')">
+    <div class="modal">
+        <div class="modal-title">New Player</div>
+        <div class="modal-error" id="modal-err-player"></div>
+        <form id="form-player" onsubmit="return false">
+            <div class="modal-field">
+                <label>Player Name</label>
+                <input type="text" name="player_name" autocomplete="off" required>
+            </div>
+            <div class="modal-field">
+                <label>User ID <span style="color:#555">(optional)</span></label>
+                <input type="text" name="user_id" autocomplete="off">
+            </div>
+        </form>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal('player')">cancel</button>
+            <button class="btn-save" onclick="submitModal('player')">create</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function deleteDoc(collection, docId) {
+    const label = collection.replace(/s$/, '');
+    if (!confirm('Delete this ' + label + '?')) return;
+    try {
+        const resp = await fetch('/admin/' + collection + '/' + docId, { method: 'DELETE' });
+        if (resp.ok || resp.status === 204) {
+            window.location.reload();
+        } else {
+            const err = await resp.json().catch(function() { return {}; });
+            alert(err.detail || 'Failed to delete ' + label);
+        }
+    } catch (e) {
+        alert('Network error');
+    }
+}
+
+function openModal(name) {
+    document.getElementById('modal-' + name).classList.add('open');
+    const first = document.querySelector('#modal-' + name + ' input');
+    if (first) first.focus();
+}
+
+function closeModal(name) {
+    document.getElementById('modal-' + name).classList.remove('open');
+    document.getElementById('modal-err-' + name).textContent = '';
+    document.getElementById('form-' + name).reset();
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-backdrop.open').forEach(function(el) {
+            const name = el.id.replace('modal-', '');
+            closeModal(name);
+        });
+    }
+});
+
+async function submitModal(name) {
+    document.getElementById('modal-err-' + name).textContent = '';
+    const form = document.getElementById('form-' + name);
+    if (!form.reportValidity()) return;
+
+    const data = {};
+    form.querySelectorAll('input').forEach(function(input) {
+        if (input.type === 'checkbox') {
+            data[input.name] = input.checked;
+        } else if (input.type === 'number') {
+            if (input.value !== '') data[input.name] = parseInt(input.value, 10);
+        } else {
+            if (input.value.trim() !== '') data[input.name] = input.value.trim();
+        }
+    });
+
+    try {
+        const resp = await fetch('/admin/create/' + name, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const err = await resp.json().catch(function() { return {}; });
+            document.getElementById('modal-err-' + name).textContent = err.detail || 'Error creating ' + name;
+        }
+    } catch (e) {
+        document.getElementById('modal-err-' + name).textContent = 'Network error';
+    }
+}
+</script>
+
+</body>
+</html>
