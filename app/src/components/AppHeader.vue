@@ -6,6 +6,7 @@
   import EventsModal from './EventsModal.vue'
   import LanesBoard from './LanesBoard.vue'
   import { arenaLabel } from '../venue'
+  import { openDisplayWindow } from '../displayRoute'
 
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
@@ -235,6 +236,11 @@
     <div class="header-left">
       <button v-if="loggedInUser" class="auth-btn lanes-btn" @click="openLanes">Lanes</button>
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
+      <button
+        class="auth-btn tv-btn"
+        title="Open the TV scoreboard. AirPlay or HDMI that window — this iPad keeps Lanes and Events."
+        @click="openDisplayWindow()"
+      >TV</button>
       <label v-if="loggedInUser" class="group-picker">
         <span class="group-picker-label" :title="`Bookings for ${todayLabel}`">Today</span>
         <input

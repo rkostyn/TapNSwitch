@@ -1,3 +1,6 @@
+As a user I want a TV scoreboard that shows only the match (names on the correct sides, throws, and rounds) with no Lanes / Events / bookings chrome.
+  - Scoring iPad keeps the admin buttons and can open /display (AirPlay or HDMI that window).
+  - A TV above a color can open /display/red (etc.) and follow the live match on that arena.
 As a user I want the ability to add player to an event. 
 As a user I want to mark throwers as “late”, delaying the games until later.
 As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:
