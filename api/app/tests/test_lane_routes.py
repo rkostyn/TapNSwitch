@@ -5,7 +5,7 @@ from app.repositories.event_repository import EventRepository
 from app.services.checkfront_events import sync_checkfront_booking
 from app.tests.fakes import FakeMongoClient
 from app.tests.test_checkfront_integration import SAMPLE_BOOKING
-from app.venue import guess_arena_ids, suggested_arena_count
+from app.venue import guess_arena_ids, lane_label, lanes_for_arena_ids, suggested_arena_count
 
 
 def auth_headers(token):
@@ -19,6 +19,12 @@ def test_suggested_arena_count_matches_baltimore_group_sizes():
     assert suggested_arena_count(10) == 2
     assert suggested_arena_count(16) == 3
     assert suggested_arena_count(24) == 4
+
+
+def test_lanes_for_arena_ids_expands_each_color_into_two_lanes():
+    assert lanes_for_arena_ids(["red"]) == ["red-1", "red-2"]
+    assert lanes_for_arena_ids(["red", "green"]) == ["red-1", "red-2", "green-1", "green-2"]
+    assert lane_label("red-1") == "Red · Lane 1"
 
 
 def test_guess_arena_ids_from_checkfront_item_name():

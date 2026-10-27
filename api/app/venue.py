@@ -66,6 +66,28 @@ def guess_arena_ids(*texts: str) -> list[str]:
     return found
 
 
+def lanes_for_arena_ids(arena_ids: list[str]) -> list[str]:
+    """Expand occupied colors into the 2 physical lanes in each arena."""
+    lanes: list[str] = []
+    for raw in arena_ids or []:
+        arena = ARENA_BY_ID.get((raw or "").strip().casefold())
+        if not arena:
+            continue
+        lanes.extend(lane.lane_id for lane in arena.lanes)
+    return lanes
+
+
+def lane_label(lane_id: str | None) -> str:
+    if not lane_id:
+        return ""
+    arena_id = lane_id.rsplit("-", 1)[0]
+    arena = ARENA_BY_ID.get(arena_id)
+    if not arena:
+        return lane_id
+    lane = next((item for item in arena.lanes if item.lane_id == lane_id), None)
+    return f"{arena.name} · {lane.label}" if lane else lane_id
+
+
 def normalize_arena_ids(arena_ids: list[str]) -> list[str]:
     seen: list[str] = []
     unknown: list[str] = []

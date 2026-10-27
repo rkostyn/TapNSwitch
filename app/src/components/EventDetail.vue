@@ -40,6 +40,7 @@
   const playersCollapsed = ref(false)
 
   const newPlayer = ref('')
+  const pairingStyle = ref('round_robin')
   const configMatches = ref(2)
   const configRounds = ref(2)
 
@@ -96,6 +97,7 @@
       event.value = ev
       matches.value = matchList
       venueArenas.value = arenas
+      pairingStyle.value = event.value.pairing_style === 'swiss' ? 'swiss' : 'round_robin'
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
       if (bracketGenerated.value) activeTab.value = 'bracket'
@@ -156,11 +158,13 @@
 
   async function saveConfigAndGenerate() {
     await run(async () => {
-      event.value = await updateSwissConfig(props.eventId, configMatches.value, configRounds.value)
+      event.value = await updateSwissConfig(
+        props.eventId, configMatches.value, configRounds.value, pairingStyle.value,
+      )
       await generateSwissMatches(props.eventId)
       needsRegen.value = false
       await load()
-    }, 'Failed to generate swiss matches.')
+    }, 'Failed to generate matches.')
   }
 
   // Roster changed after generation: rebuild the schedule (before any scores) or
@@ -170,7 +174,7 @@
       await generateSwissMatches(props.eventId)
       needsRegen.value = false
       await load()
-    }, 'Failed to update swiss matches.')
+    }, 'Failed to update matches.')
   }
 
   async function generateScores() {
@@ -328,11 +332,29 @@
         </template>
       </section>
 
-      <!-- Swiss setup / matches -->
+      <!-- Group-stage matches: round robin by default, Swiss if the group wants it -->
       <section class="section">
-        <h3 class="section-title">Swiss Stage</h3>
+        <h3 class="section-title">{{ pairingStyle === 'swiss' ? 'Swiss' : 'Round Robin' }}</h3>
         <template v-if="!swissGenerated">
-          <div class="config-row">
+          <div class="style-toggle" role="group" aria-label="Match style">
+            <button
+              type="button"
+              class="style-btn"
+              :class="{ active: pairingStyle === 'round_robin' }"
+              @click="pairingStyle = 'round_robin'"
+            >Round robin</button>
+            <button
+              type="button"
+              class="style-btn"
+              :class="{ active: pairingStyle === 'swiss' }"
+              @click="pairingStyle = 'swiss'"
+            >Swiss</button>
+          </div>
+          <p class="style-hint">
+            <template v-if="pairingStyle === 'swiss'">Each thrower gets a set number of matches. Use this if the group wants a shorter Swiss night.</template>
+            <template v-else>Everyone plays everyone once. The usual floor style.</template>
+          </p>
+          <div v-if="pairingStyle === 'swiss'" class="config-row">
             <label class="modal-label">Matches per thrower</label>
             <input class="modal-input config-input" type="number" min="1" max="20" v-model.number="configMatches" />
           </div>
@@ -341,7 +363,7 @@
             <input class="modal-input config-input" type="number" min="1" max="10" v-model.number="configRounds" />
           </div>
           <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="saveConfigAndGenerate">
-            Generate Swiss Matches
+            Generate Matches
           </button>
         </template>
         <template v-else>
@@ -351,7 +373,7 @@
               new players get matches added.
             </p>
             <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="regenerateMatches">
-              Update Swiss Matches
+              Update Matches
             </button>
             <button class="modal-cancel full-btn" :disabled="busy" @click="needsRegen = false">
               Cancel
@@ -379,14 +401,14 @@
             </li>
           </ul>
           <button class="modal-submit full-btn" :disabled="busy" @click="generateScores">
-            Generate Swiss Scores
+            Generate Scores
           </button>
         </template>
       </section>
 
       <!-- Standings -->
       <section class="section" v-if="standings">
-        <h3 class="section-title">Swiss Standings</h3>
+        <h3 class="section-title">Standings</h3>
         <table class="standings-table">
           <thead>
             <tr><th>#</th><th>Thrower</th><th>Points</th><th>Rounds Won</th><th>Best Round</th></tr>
@@ -624,6 +646,37 @@
 }
 
 .add-player-input { flex: 1; }
+
+.style-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.style-btn {
+  flex: 1;
+  min-height: var(--touch-min);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-bg-secondary);
+  background: var(--color-bg-input);
+  color: var(--color-muted);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.style-btn.active {
+  border-color: var(--color-purple);
+  background: var(--color-purple-soft);
+  color: var(--color-purple);
+}
+
+.style-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
 
 .config-row {
   display: flex;

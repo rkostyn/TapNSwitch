@@ -18,6 +18,7 @@
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from '../config'
   import BracketView from './BracketView.vue'
   import ArenaChips from './ArenaChips.vue'
+  import { laneLabel } from '../venue'
 
   const props = defineProps(['eventId'])
   const emit = defineEmits(['back', 'selectMatch'])
@@ -38,6 +39,7 @@
   const playersCollapsed = ref(false)
 
   const newPlayer = ref('')
+  const pairingStyle = ref('swiss')
   const configMatches = ref(2)
   const configRounds = ref(2)
 
@@ -83,6 +85,7 @@
     try {
       event.value = await getEvent(props.eventId)
       matches.value = await getMatchesByEvent(props.eventId)
+      pairingStyle.value = event.value.pairing_style === 'round_robin' ? 'round_robin' : 'swiss'
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
       if (bracketGenerated.value) activeTab.value = 'bracket'
@@ -143,7 +146,9 @@
 
   async function saveConfigAndGenerate() {
     await run(async () => {
-      event.value = await updateSwissConfig(props.eventId, configMatches.value, configRounds.value)
+      event.value = await updateSwissConfig(
+        props.eventId, configMatches.value, configRounds.value, pairingStyle.value,
+      )
       await generateSwissMatches(props.eventId)
       needsRegen.value = false
       await load()
@@ -306,11 +311,29 @@
         </template>
       </section>
 
-      <!-- Swiss setup / matches -->
+      <!-- Tournament group stage: Swiss by default, round robin if a coach wants it -->
       <section class="section">
-        <h3 class="section-title">Swiss Stage</h3>
+        <h3 class="section-title">{{ pairingStyle === 'round_robin' ? 'Round Robin' : 'Swiss' }}</h3>
         <template v-if="!swissGenerated">
-          <div class="config-row">
+          <div class="style-toggle" role="group" aria-label="Match style">
+            <button
+              type="button"
+              class="style-btn"
+              :class="{ active: pairingStyle === 'swiss' }"
+              @click="pairingStyle = 'swiss'"
+            >Swiss</button>
+            <button
+              type="button"
+              class="style-btn"
+              :class="{ active: pairingStyle === 'round_robin' }"
+              @click="pairingStyle = 'round_robin'"
+            >Round robin</button>
+          </div>
+          <p class="style-hint">
+            <template v-if="pairingStyle === 'swiss'">Each thrower gets a set number of matches, then we deal those games onto the group's lanes.</template>
+            <template v-else>Everyone plays everyone once, dealt onto the group's lanes.</template>
+          </p>
+          <div v-if="pairingStyle === 'swiss'" class="config-row">
             <label class="modal-label">Matches per thrower</label>
             <input class="modal-input config-input" type="number" min="1" max="20" v-model.number="configMatches" />
           </div>
@@ -319,7 +342,7 @@
             <input class="modal-input config-input" type="number" min="1" max="10" v-model.number="configRounds" />
           </div>
           <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="saveConfigAndGenerate">
-            Generate Swiss Matches
+            Generate Matches
           </button>
         </template>
         <template v-else>
@@ -329,7 +352,7 @@
               new players get matches added.
             </p>
             <button class="modal-submit full-btn" :disabled="busy || event.players.length < 2" @click="regenerateMatches">
-              Update Swiss Matches
+              Update Matches
             </button>
             <button class="modal-cancel full-btn" :disabled="busy" @click="needsRegen = false">
               Cancel
@@ -343,7 +366,10 @@
               :class="matchStatus(match)"
               @click="selectMatch(match)"
             >
-              <span class="match-name">{{ matchLabel(match) }}</span>
+              <span class="match-name">
+                {{ matchLabel(match) }}
+                <span v-if="match.arena_id" class="match-lane">{{ laneLabel(match.arena_id) }}</span>
+              </span>
               <span class="match-status">
                 <template v-if="match.is_finished">{{ match.winner_id ? `Won: ${match.winner_id}` : 'Finished' }}</template>
                 <template v-else-if="match.is_locked">In use by {{ holderLabel(match.locked_by) }}</template>
@@ -586,6 +612,45 @@
 }
 
 .add-player-input { flex: 1; }
+
+.style-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.style-btn {
+  flex: 1;
+  min-height: var(--touch-min);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-bg-secondary);
+  background: var(--color-bg-input);
+  color: var(--color-muted);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.style-btn.active {
+  border-color: var(--color-purple);
+  background: var(--color-purple-soft);
+  color: var(--color-purple);
+}
+
+.style-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.match-lane {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: bold;
+  color: #fbbf24;
+}
 
 .config-row {
   display: flex;

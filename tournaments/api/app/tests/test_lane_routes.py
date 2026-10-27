@@ -87,6 +87,22 @@ def test_assign_group_to_arena_and_see_it_on_the_board(client, auth_token):
     assert all(event["event_id"] != event_id for event in data["waiting"])
 
 
+def test_swiss_generate_deals_matches_onto_group_lanes(client, auth_token):
+    event_id = client.post(
+        "/event",
+        json={"event_name": "Smith party", "players": ["Alex", "Blake", "Casey", "Drew"]},
+        headers=auth_headers(auth_token),
+    ).json()["event_id"]
+    client.put(
+        f"/event/{event_id}/arenas",
+        json={"arena_ids": ["red"]},
+        headers=auth_headers(auth_token),
+    )
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    assert {m["arena_id"] for m in matches} == {"red-1", "red-2"}
+    assert all(m["arena_id"] in {"red-1", "red-2"} for m in matches)
+
+
 def test_cannot_put_two_groups_on_the_same_arena(client, auth_token):
     first = client.post(
         "/event",

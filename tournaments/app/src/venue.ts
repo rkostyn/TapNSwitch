@@ -22,3 +22,12 @@ export function arenaLabel(arenaIds: string[] | null | undefined): string {
   if (!arenaIds?.length) return ''
   return arenaIds.map(id => arenaById(id)?.name ?? id).join(' / ')
 }
+
+export function laneLabel(laneId: string | null | undefined): string {
+  if (!laneId) return ''
+  const arenaId = laneId.includes('-') ? laneId.slice(0, laneId.lastIndexOf('-')) : laneId
+  const arena = arenaById(arenaId)
+  if (!arena) return laneId
+  const num = laneId.slice(arenaId.length + 1)
+  return num ? `${arena.name} · Lane ${num}` : arena.name
+}

@@ -58,6 +58,7 @@ export interface ApiEvent {
   suggested_arena_count?: number
   suggested_arena_ids?: string[]
   arena_ids?: string[]
+  pairing_style?: 'round_robin' | 'swiss'
   swiss_matches_per_player: number
   swiss_rounds_per_match: number
   swiss_generated_at: string | null
@@ -232,10 +233,16 @@ export async function setPlayerLate(eventId: string, playerName: string, late: b
   return data
 }
 
-export async function updateSwissConfig(eventId: string, matchesPerPlayer: number, roundsPerMatch: number): Promise<ApiEvent> {
+export async function updateSwissConfig(
+  eventId: string,
+  matchesPerPlayer: number,
+  roundsPerMatch: number,
+  pairingStyle: 'round_robin' | 'swiss' = 'round_robin',
+): Promise<ApiEvent> {
   const { data } = await http.put(`/event/${eventId}/swiss-config`, {
     swiss_matches_per_player: matchesPerPlayer,
     swiss_rounds_per_match: roundsPerMatch,
+    pairing_style: pairingStyle,
   })
   return data
 }

@@ -4,14 +4,46 @@ from app.services.tournament import (
     GHOST_PLAYER_ID,
     build_bracket_matches,
     build_late_entry_pairings,
+    build_round_robin_pairings,
     build_swiss_pairings,
     compute_match_winner,
     compute_swiss_standings,
+    late_entry_quota,
 )
 
 
 def throw(player, round_id, points, match_id="m1"):
     return SimpleNamespace(player_id=player, round_id=round_id, points=points, match_id=match_id)
+
+
+# ---------------------------------------------------------------------------
+# Round robin pairings
+# ---------------------------------------------------------------------------
+
+def test_round_robin_four_players_play_everyone_once():
+    pairings = build_round_robin_pairings(["A", "B", "C", "D"], [])
+    assert len(pairings) == 6
+    counts = {p: 0 for p in "ABCD"}
+    for a, b in pairings:
+        counts[a] += 1
+        counts[b] += 1
+    assert counts == {"A": 3, "B": 3, "C": 3, "D": 3}
+    assert {frozenset(pair) for pair in pairings} == {
+        frozenset(("A", "B")), frozenset(("A", "C")), frozenset(("A", "D")),
+        frozenset(("B", "C")), frozenset(("B", "D")), frozenset(("C", "D")),
+    }
+
+
+def test_round_robin_late_players_last():
+    pairings = build_round_robin_pairings(["A", "B", "C", "D"], ["D"])
+    involves_late = [("D" in pair) for pair in pairings]
+    first_late = involves_late.index(True)
+    assert all(involves_late[first_late:])
+
+
+def test_late_entry_quota_round_robin_is_everyone_else():
+    assert late_entry_quota("round_robin", 5, 2) == 4
+    assert late_entry_quota("swiss", 5, 2) == 2
 
 
 # ---------------------------------------------------------------------------

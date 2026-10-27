@@ -22,8 +22,9 @@ from app.models.throw import ThrowsGet
 from app.services.tournament import (
     GHOST_PLAYER_ID,
     build_bracket_matches,
+    build_group_pairings,
     build_late_entry_pairings,
-    build_swiss_pairings,
+    late_entry_quota,
     compute_swiss_standings,
 )
 from app.logger import get_logger
@@ -233,7 +234,7 @@ async def update_swiss_config(
     existing = await match_repo.get_matches_by_event(event_id, match_type="swiss")
     if await _swiss_played(mongo_client, event_id, {m.match_id for m in existing}):
         raise HTTPException(status_code=409, detail="Swiss scores already recorded")
-    return await repo.update_event_fields(event_id, body.model_dump())
+    return await repo.update_event_fields(event_id, body.model_dump(exclude_none=True))
 
 
 @router.post("/{event_id}/swiss/generate", response_model=list[Match])
@@ -264,7 +265,7 @@ async def generate_swiss_matches(
             return existing
         pairings = build_late_entry_pairings(
             event.players, new_players, event.late_players,
-            event.swiss_matches_per_player,
+            late_entry_quota(event.pairing_style, len(event.players), event.swiss_matches_per_player),
             [(m.player_1_id, m.player_2_id) for m in existing],
         )
         start_sequence = max((m.sequence for m in existing), default=0) + 1
@@ -281,7 +282,9 @@ async def generate_swiss_matches(
     # No scores yet — (re)build the whole schedule from the current roster.
     if existing:
         await match_repo.delete_matches_by_event(event_id, match_type="swiss")
-    pairings = build_swiss_pairings(event.players, event.late_players, event.swiss_matches_per_player)
+    pairings = build_group_pairings(
+        event.pairing_style, event.players, event.late_players, event.swiss_matches_per_player
+    )
     docs = _swiss_match_docs(event_id, pairings, event.swiss_rounds_per_match, now)
     matches = await match_repo.insert_matches(docs)
     await repo.update_event_fields(

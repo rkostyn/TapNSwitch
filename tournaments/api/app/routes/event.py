@@ -21,10 +21,12 @@ from app.models.throw import ThrowsGet
 from app.services.tournament import (
     GHOST_PLAYER_ID,
     build_bracket_matches,
+    build_group_pairings,
     build_late_entry_pairings,
-    build_swiss_pairings,
+    late_entry_quota,
     compute_swiss_standings,
 )
+from app.venue import lanes_for_arena_ids
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -125,7 +127,8 @@ async def _swiss_played(mongo_client: MongoClient, event_id: str, swiss_match_id
     return any(t.match_id in swiss_match_ids for t in throws)
 
 
-def _swiss_match_docs(event_id, pairings, rounds_per_match, now, start_sequence=1):
+def _swiss_match_docs(event_id, pairings, rounds_per_match, now, start_sequence=1, lane_ids=None):
+    lanes = lane_ids or []
     return [
         {
             "match_id": str(uuid.uuid4()),
@@ -137,6 +140,7 @@ def _swiss_match_docs(event_id, pairings, rounds_per_match, now, start_sequence=
             "rounds_per_match": rounds_per_match,
             "bracket_round": None,
             "bracket_slot": None,
+            "arena_id": lanes[i % len(lanes)] if lanes else None,
             "winner_id": None,
             "timestamp": now,
             "is_locked": False,
@@ -219,7 +223,7 @@ async def update_swiss_config(
     existing = await match_repo.get_matches_by_event(event_id, match_type="swiss")
     if await _swiss_played(mongo_client, event_id, {m.match_id for m in existing}):
         raise HTTPException(status_code=409, detail="Swiss scores already recorded")
-    return await repo.update_event_fields(event_id, body.model_dump())
+    return await repo.update_event_fields(event_id, body.model_dump(exclude_none=True))
 
 
 @router.post("/{event_id}/swiss/generate", response_model=list[Match])
@@ -250,11 +254,14 @@ async def generate_swiss_matches(
             return existing
         pairings = build_late_entry_pairings(
             event.players, new_players, event.late_players,
-            event.swiss_matches_per_player,
+            late_entry_quota(event.pairing_style, len(event.players), event.swiss_matches_per_player),
             [(m.player_1_id, m.player_2_id) for m in existing],
         )
         start_sequence = max((m.sequence for m in existing), default=0) + 1
-        docs = _swiss_match_docs(event_id, pairings, event.swiss_rounds_per_match, now, start_sequence)
+        docs = _swiss_match_docs(
+            event_id, pairings, event.swiss_rounds_per_match, now, start_sequence,
+            lanes_for_arena_ids(event.arena_ids),
+        )
         added = await match_repo.insert_matches(docs)
         # New games make the stored standings stale until recomputed.
         await repo.update_event_fields(
@@ -267,8 +274,13 @@ async def generate_swiss_matches(
     # No scores yet — (re)build the whole schedule from the current roster.
     if existing:
         await match_repo.delete_matches_by_event(event_id, match_type="swiss")
-    pairings = build_swiss_pairings(event.players, event.late_players, event.swiss_matches_per_player)
-    docs = _swiss_match_docs(event_id, pairings, event.swiss_rounds_per_match, now)
+    pairings = build_group_pairings(
+        event.pairing_style, event.players, event.late_players, event.swiss_matches_per_player
+    )
+    docs = _swiss_match_docs(
+        event_id, pairings, event.swiss_rounds_per_match, now,
+        lane_ids=lanes_for_arena_ids(event.arena_ids),
+    )
     matches = await match_repo.insert_matches(docs)
     await repo.update_event_fields(
         event_id,

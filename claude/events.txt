@@ -1,6 +1,8 @@
 As a user I want the ability to add player to an event. 
 As a user I want to mark throwers as “late”, delaying the games until later.
 As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:
+  - Default style is round robin (everyone plays everyone once)
+  - Staff can switch a group to Swiss if they want fewer matches per thrower
   - Ability to control how many rounds and how many matches for the group
   - Default should be 2 matches of 2 rounds per thrower
   - When a match is completed, move it to the bottom of the list, making it easier to know who is up next.

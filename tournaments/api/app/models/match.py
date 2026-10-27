@@ -26,6 +26,7 @@ class Match(BaseModel):
     rounds_per_match: int = 2
     bracket_round: Optional[int] = None
     bracket_slot: Optional[int] = None
+    arena_id: Optional[str] = None
     winner_id: Optional[str] = None
     timestamp: datetime
     is_locked: bool = False
