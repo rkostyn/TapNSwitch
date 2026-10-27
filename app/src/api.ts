@@ -53,6 +53,12 @@ export interface ApiEvent {
   late_players: string[]
   source?: 'manual' | 'checkfront'
   checkfront_booking_code?: string | null
+  start_timestamp?: string | null
+  checkfront_qty?: number
+  suggested_arena_count?: number
+  suggested_arena_ids?: string[]
+  arena_ids?: string[]
+  pairing_style?: 'round_robin' | 'swiss'
   swiss_matches_per_player: number
   swiss_rounds_per_match: number
   swiss_generated_at: string | null
@@ -164,6 +170,49 @@ export async function createEvent(name: string, players: string[]): Promise<void
   await http.post('/event', { event_name: name, players })
 }
 
+export interface LaneInfo {
+  lane_id: string
+  label: string
+}
+
+export interface LaneGroup {
+  event_id: string
+  event_name: string | null
+  players: string[]
+  source: string
+  checkfront_booking_code: string | null
+  start_timestamp: string | null
+  checkfront_qty: number
+  suggested_arena_count: number
+  suggested_arena_ids: string[]
+  arena_ids: string[]
+}
+
+export interface ArenaCard {
+  arena_id: string
+  name: string
+  color: string
+  text_color: string
+  lanes: LaneInfo[]
+  group: LaneGroup | null
+}
+
+export interface LaneBoard {
+  venue: string
+  arenas: ArenaCard[]
+  waiting: LaneGroup[]
+}
+
+export async function getLaneBoard(): Promise<LaneBoard> {
+  const { data } = await http.get('/lanes')
+  return data
+}
+
+export async function assignEventArenas(eventId: string, arenaIds: string[]): Promise<ApiEvent> {
+  const { data } = await http.put(`/event/${eventId}/arenas`, { arena_ids: arenaIds })
+  return data
+}
+
 export async function finishEvent(eventId: string): Promise<ApiEvent> {
   const { data } = await http.post(`/event/${eventId}/finish`)
   return data
@@ -184,10 +233,16 @@ export async function setPlayerLate(eventId: string, playerName: string, late: b
   return data
 }
 
-export async function updateSwissConfig(eventId: string, matchesPerPlayer: number, roundsPerMatch: number): Promise<ApiEvent> {
+export async function updateSwissConfig(
+  eventId: string,
+  matchesPerPlayer: number,
+  roundsPerMatch: number,
+  pairingStyle: 'round_robin' | 'swiss' = 'round_robin',
+): Promise<ApiEvent> {
   const { data } = await http.put(`/event/${eventId}/swiss-config`, {
     swiss_matches_per_player: matchesPerPlayer,
     swiss_rounds_per_match: roundsPerMatch,
+    pairing_style: pairingStyle,
   })
   return data
 }

@@ -1,0 +1,8 @@
+As a user, if I select a round, I can update the scores even if the match is finished.
+
+
+A game of axes is considered a draw if there are equal rounds taken between players.  Ties do no count for either player.
+If a game is tied, then there is a tie breaker. 
+A tie breaker is a single throw for each side. If both sides get a bull, they can go for clutch.
+In a tie breaker, if three clutches in a row are missed players must go back down to hit bulls.  If they both hit their bulls they can go up for clutch again.
+In a tie breaker, this can use the same buttons.  It should also prevent the match from being finished.

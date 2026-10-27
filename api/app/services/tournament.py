@@ -31,6 +31,41 @@ def _round_robin_rounds(players: list[str]) -> list[list[tuple[str, str]]]:
     return rounds
 
 
+def build_round_robin_pairings(
+    players: list[str],
+    late_players: list[str],
+    cycles: int = 1,
+) -> list[tuple[str, str]]:
+    """Everyone plays everyone once per cycle. Late players' games go last."""
+    if len(players) < 2:
+        return []
+    pairings: list[tuple[str, str]] = []
+    for _ in range(max(int(cycles or 1), 1)):
+        for round_pairs in _round_robin_rounds(players):
+            pairings.extend(round_pairs)
+    late = set(late_players)
+    pairings.sort(key=lambda pair: pair[0] in late or pair[1] in late)
+    return pairings
+
+
+def build_group_pairings(
+    style: str,
+    players: list[str],
+    late_players: list[str],
+    matches_per_player: int,
+) -> list[tuple[str, str]]:
+    if style == "swiss":
+        return build_swiss_pairings(players, late_players, matches_per_player)
+    return build_round_robin_pairings(players, late_players)
+
+
+def late_entry_quota(style: str, player_count: int, matches_per_player: int) -> int:
+    """How many games a late joiner still needs."""
+    if style == "round_robin":
+        return max(player_count - 1, 1)
+    return matches_per_player
+
+
 def build_swiss_pairings(
     players: list[str],
     late_players: list[str],

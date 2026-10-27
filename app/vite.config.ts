@@ -25,6 +25,8 @@ export default defineConfig({
       '/round':  { target: API_TARGET, changeOrigin: true },
       '/throw':  { target: API_TARGET, changeOrigin: true },
       '/player': { target: API_TARGET, changeOrigin: true },
+      '/lanes':  { target: API_TARGET, changeOrigin: true },
+      '/integrations': { target: API_TARGET, changeOrigin: true },
     },
   },
 })

@@ -1,6 +1,8 @@
 As a user I want the ability to add player to an event. 
 As a user I want to mark throwers as “late”, delaying the games until later.
 As a user I want to Automatically building a swiss/round robin bracket for the throwers in that group:
+  - Default style is round robin (everyone plays everyone once)
+  - Staff can switch a group to Swiss if they want fewer matches per thrower
   - Ability to control how many rounds and how many matches for the group
   - Default should be 2 matches of 2 rounds per thrower
   - When a match is completed, move it to the bottom of the list, making it easier to know who is up next.
@@ -25,3 +27,11 @@ If a match selected is already selected by a different coach/ipad, a notice shou
 If a user is playing an event match, when the match is complete show the events page instead of a new match.
 As a user, I have a button to close an event. 
 As a user, by default I don't see closed events.
+
+Baltimore floor (keep this simple):
+  - 6 colored arenas: red, green, blue, yellow, white, black
+  - Each arena has 2 lanes, so 12 lanes and two people can throw at the same time
+  - Checkfront bookings become groups. Staff put a group on one or more colors
+  - Group size hints how many arenas they need: 1–6 → 1, 7–10 → 2, 11–20 → 3
+  - If Checkfront's item name mentions a color, that color is suggested
+  - Closing an event frees its colors so the next group can use them
