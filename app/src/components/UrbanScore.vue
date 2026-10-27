@@ -4,25 +4,27 @@
   const props = defineProps(['playerName', 'mirrored', 'disabled', 'clutchAvailable'])
   const emit = defineEmits(['score'])
 
-  // A regular axe scores 1–5 or 0.
+  // IATF scoring: a regular axe scores 1, 3, 5, or 0 (hit the board outside
+  // the target). A dropped axe also scores 0 but is recorded as a drop. The
+  // Clutch circle switches the grid to clutch scoring.
   const regularButtons = [
-    { text: '2', value: 2, color: 'green' },
-    { text: '1', value: 1, color: 'blue' },
-    { text: '4', value: 4, color: 'purple' },
     { text: '3', value: 3, color: 'red' },
-    { text: '0', value: 0, color: 'gray' },
-    { text: '5', value: 5, color: 'orange' },
+    { text: '1', value: 1, color: 'blue' },
+    { text: '0', value: 0, color: 'orange' },
+    { text: '5', value: 5, color: 'purple' },
+    { clutch: true },
+    { text: 'Drop', value: 0, color: 'gray', drop: true },
   ]
 
-  // A clutch scores Touch Clutch (6), Premier Clutch (7), or a miss (0). The
-  // clutch scores reuse the same six circles; the rest are greyed out.
+  // A called clutch scores 7 or 0 (a miss). The unused circles are greyed out;
+  // Drop and Clutch (now Cancel) stay put so they're always where expected.
   const clutchButtons = [
-    { text: '6', value: 6, color: 'purple' },
+    { text: '0', value: 0, color: 'orange' },
     { text: '7', value: 7, color: 'green' },
-    { text: '0', value: 0, color: 'gray' },
     { text: '-', value: 0, color: 'gray', disabled: true },
     { text: '-', value: 0, color: 'gray', disabled: true },
-    { text: '-', value: 0, color: 'gray', disabled: true },
+    { clutch: true },
+    { text: 'Drop', value: 0, color: 'gray', drop: true },
   ]
 
   const clutchMode = ref(false)
@@ -52,7 +54,7 @@
     if (item.disabled) return
     const clutch = clutchMode.value
     clutchMode.value = false
-    emit('score', { points: item.value, clutch })
+    emit('score', { points: item.value, clutch, drop: !!item.drop })
   }
 </script>
 
@@ -61,6 +63,14 @@
     <div class="grid-container">
       <div v-for="(item, idx) in displayButtons" :key="idx" class="grid-child">
         <button
+          v-if="item.clutch"
+          class="button-circle"
+          :class="clutchMode ? 'color-red' : 'color-teal'"
+          :disabled="props.disabled || !props.clutchAvailable"
+          @click="toggleClutch"
+        >{{ clutchMode ? 'Cancel' : 'Clutch' }}</button>
+        <button
+          v-else
           class="button-circle"
           :class="`color-${item.color}`"
           :disabled="props.disabled || item.disabled"
@@ -68,13 +78,6 @@
         >{{ item.text }}</button>
       </div>
     </div>
-
-    <button
-      class="clutch-btn"
-      :class="{ active: clutchMode }"
-      :disabled="props.disabled || !props.clutchAvailable"
-      @click="toggleClutch"
-    >{{ clutchMode ? 'Cancel ' : 'Clutch' }}</button>
   </div>
 </template>
 
@@ -84,32 +87,6 @@
   flex-direction: column;
   align-items: center;
   gap: 20px;
-}
-
-.clutch-btn {
-  /* Spans the two columns of circles (2 × 106px + 20px gap) below it */
-  width: 232px;
-  max-width: 100%;
-  padding: 16px;
-  border: none;
-  border-radius: 16px;
-  background: #047857;
-  color: #fff;
-  font-family: inherit;
-  font-size: 1.35rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  cursor: pointer;
-}
-
-.clutch-btn.active {
-  background: #b91c1c;
-}
-
-.clutch-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .grid-container {
@@ -155,4 +132,5 @@
 .color-orange { background: #f59e0b; }
 .color-green  { background: #059669; }
 .color-gray   { background: #6b7280; }
+.color-teal   { background: #047857; }
 </style>

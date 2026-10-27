@@ -76,7 +76,7 @@
 
   // The score panels do double duty: during a tie breaker they record the
   // sudden-death throws; otherwise they score the round on display.
-  // payload = { points: number, clutch: boolean }
+  // payload = { points: number, clutch: boolean, drop: boolean }
   function routeScore(player, payload) {
     if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, payload)
     else applyScore(player, payload)
@@ -230,7 +230,7 @@
     const arr = player === 1 ? tb.s1 : tb.s2
     const idx = arr.length - 1
     if (arr[idx] !== null) return
-    const entry = { value: payload.points, clutch: payload.clutch }
+    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
     arr[idx] = entry
     syncEntry(entry, player, null, tiebreakSeq())
     if (tb.s1[idx] !== null && tb.s2[idx] !== null) resolveTiebreakAttempt()
@@ -265,7 +265,7 @@
 
   function applyScore(player, payload) {
     if (!payload || typeof payload.points !== 'number') return
-    const entry = { value: payload.points, clutch: !!payload.clutch }
+    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
 
     const arr = player === 1 ? displayScores1.value : displayScores2.value
     let oldEntry = null
@@ -489,13 +489,13 @@
     return scores.reduce((s, x) => s + (x ? x.value : 0), 0)
   }
 
-  // Keyboard scoring: number keys 0–5 record a regular throw for the left
+  // Keyboard scoring: number keys 0, 1, 3 and 5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
   function handleKeydown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const el = e.target
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-    if (!/^[0-5]$/.test(e.key)) return
+    if (!/^[0135]$/.test(e.key)) return
     const payload = { points: parseInt(e.key), clutch: false }
     if (!leftDisabled.value) applyScoreLeft(payload)
     else if (!rightDisabled.value) applyScoreRight(payload)
@@ -584,7 +584,7 @@
           <span v-else-if="tiebreakInProgress" class="tiebreak-hint">
             <strong>Sudden death — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }}.</strong>
             <template v-if="tiebreak.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
-            <template v-else> Tap Clutch, then score 5, 6, 7 or 0. Three misses each drops back to bulls.</template>
+            <template v-else> Tap Clutch, then score 7 or 0. Three misses each drops back to bulls.</template>
           </span>
           <button v-else-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">
             Drawn — Start Tie Breaker
