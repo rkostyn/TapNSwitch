@@ -4,6 +4,8 @@
   import { getCookie, setCookie, deleteCookie } from '../cookies'
   import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
+  import LanesBoard from './LanesBoard.vue'
+  import { arenaLabel } from '../venue'
 
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
@@ -17,6 +19,7 @@
   const loading = ref(false)
   const loggedInUser = ref(getCookie('username') ?? '')
   const showEvents = ref(false)
+  const showLanes = ref(false)
   const eventsInitialId = ref(null)
 
   const checkfrontGroups = ref([])
@@ -29,9 +32,11 @@
   let syncMessageTimer = null
 
   function groupLabel(event) {
+    const where = arenaLabel(event.arena_ids)
+    const place = where ? ` · ${where}` : ''
     const code = event.checkfront_booking_code ? ` · ${event.checkfront_booking_code}` : ''
     const count = event.players?.length ?? 0
-    return `${event.event_name} (${count} players${code})`
+    return `${event.event_name}${place} (${count} players${code})`
   }
 
   async function loadCheckfrontStatus() {
@@ -144,6 +149,20 @@
     loadCheckfrontGroups()
   }
 
+  function openLanes() {
+    showLanes.value = true
+  }
+
+  function onLanesClose() {
+    showLanes.value = false
+    loadCheckfrontGroups()
+  }
+
+  function openEventFromLanes(eventId) {
+    showLanes.value = false
+    openEvents(eventId)
+  }
+
   defineExpose({ openEvents, loadCheckfrontGroups })
 
   function openLogin() {
@@ -190,6 +209,7 @@
 <template>
   <header class="app-header">
     <div class="header-left">
+      <button v-if="loggedInUser" class="auth-btn lanes-btn" @click="openLanes">Lanes</button>
       <button v-if="loggedInUser" class="auth-btn events-btn" @click="openEvents()">Events</button>
       <label v-if="loggedInUser" class="group-picker">
         <span class="group-picker-label">Group</span>
@@ -235,6 +255,7 @@
   </header>
 
   <EventsModal v-if="showEvents" :initialEventId="eventsInitialId" @close="onEventsClose" @selectMatch="emit('selectMatch', $event)" />
+  <LanesBoard v-if="showLanes" @close="onLanesClose" @openEvent="openEventFromLanes" />
 
   <Teleport to="body">
     <div v-if="showLogin" class="modal-overlay" @click.self="showLogin = false">

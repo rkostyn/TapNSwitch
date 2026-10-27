@@ -17,6 +17,7 @@
   import { getOrCreateClientId } from '../clientId'
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from '../config'
   import BracketView from './BracketView.vue'
+  import ArenaChips from './ArenaChips.vue'
 
   const props = defineProps(['eventId'])
   const emit = defineEmits(['back', 'selectMatch'])
@@ -240,12 +241,16 @@
 <template>
   <div class="event-detail">
     <div class="modal-header">
-      <h2 class="modal-title">{{ event?.event_name ?? 'Event' }}</h2>
+      <h2 class="modal-title">
+        {{ event?.event_name ?? 'Event' }}
+        <ArenaChips :arenaIds="event?.arena_ids" />
+      </h2>
       <button class="modal-cancel back-btn" @click="emit('back')">Back</button>
     </div>
 
     <div v-if="loading" class="state-msg">Loading…</div>
     <template v-else-if="event">
+      <p v-if="!event.arena_ids?.length && !event.is_finished" class="lane-note">Not on a lane yet. Open Lanes to put this group on a color.</p>
       <p v-if="error" class="modal-error">{{ error }}</p>
 
       <!-- Stage tabs once the bracket exists, so users can go back to swiss -->
@@ -671,5 +676,18 @@
   align-self: flex-end;
   font-size: 0.8rem;
   padding: 6px 14px;
+}
+
+.lane-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #fbbf24;
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

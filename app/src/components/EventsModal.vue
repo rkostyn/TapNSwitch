@@ -2,6 +2,7 @@
   import { ref, computed, onMounted } from 'vue'
   import { getEvents, createEvent } from '../api'
   import EventDetail from './EventDetail.vue'
+  import ArenaChips from './ArenaChips.vue'
 
   const props = defineProps(['initialEventId'])
   const emit = defineEmits(['close', 'selectMatch'])
@@ -117,6 +118,7 @@
               <li v-for="event in visibleEvents" :key="event.event_id" class="event-item" @click="openEvent(event)">
                 <span class="event-name">
                   {{ event.event_name }}
+                  <ArenaChips :arenaIds="event.arena_ids" />
                   <span v-if="event.source === 'checkfront'" class="checkfront-badge">Checkfront</span>
                   <span v-if="event.is_finished" class="closed-badge">Closed</span>
                 </span>
@@ -281,6 +283,10 @@
 .event-name {
   font-weight: bold;
   color: var(--color-text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .event-players {

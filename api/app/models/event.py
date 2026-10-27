@@ -47,6 +47,11 @@ class Event(BaseModel):
     checkfront_booking_code: Optional[str] = None
     checkfront_session_key: Optional[str] = None
     checkfront_booking_ids: list[str] = []
+    checkfront_item_skus: list[str] = []
+    checkfront_qty: int = 1
+    suggested_arena_count: int = 1
+    suggested_arena_ids: list[str] = []
+    arena_ids: list[str] = []
     start_timestamp: Optional[datetime] = None
     timestamp: datetime
     swiss_matches_per_player: int = 2

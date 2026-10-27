@@ -4,6 +4,7 @@ from pymongo import ReturnDocument
 from app.db.mongo import MongoClient
 from app.models.event import Event, EventCreate
 from app.logger import get_logger
+from app.venue import suggested_arena_count
 
 logger = get_logger(__name__)
 
@@ -25,6 +26,9 @@ class EventRepository:
             "late_players": [],
             "created_by": created_by,
             "source": "manual",
+            "suggested_arena_count": suggested_arena_count(len(event_create.players)),
+            "suggested_arena_ids": [],
+            "arena_ids": [],
             "start_timestamp": event_create.start_timestamp,
             "timestamp": datetime.now(UTC),
             "swiss_matches_per_player": event_create.swiss_matches_per_player,
@@ -51,13 +55,18 @@ class EventRepository:
         booking_id: str,
         booking_code: str,
         session_key: str | None,
+        item_skus: list[str] | None = None,
+        qty: int = 1,
+        suggested_count: int | None = None,
+        suggested_ids: list[str] | None = None,
     ) -> Event:
         collection = await self._collection()
         event_id = str(uuid.uuid4())
+        players = event_create.players
         doc = {
             "event_id": event_id,
             "event_name": event_create.event_name,
-            "players": event_create.players,
+            "players": players,
             "late_players": [],
             "created_by": "checkfront",
             "source": "checkfront",
@@ -65,6 +74,11 @@ class EventRepository:
             "checkfront_booking_code": booking_code,
             "checkfront_session_key": session_key,
             "checkfront_booking_ids": [booking_id],
+            "checkfront_item_skus": item_skus or [],
+            "checkfront_qty": qty,
+            "suggested_arena_count": suggested_count or suggested_arena_count(max(qty, len(players))),
+            "suggested_arena_ids": suggested_ids or [],
+            "arena_ids": [],
             "start_timestamp": event_create.start_timestamp,
             "timestamp": datetime.now(UTC),
             "swiss_matches_per_player": event_create.swiss_matches_per_player,
@@ -108,6 +122,11 @@ class EventRepository:
         ).sort("timestamp", -1)
         return [Event(**doc) async for doc in cursor]
 
+    async def get_open_events(self) -> list[Event]:
+        collection = await self._collection()
+        cursor = collection.find({"is_finished": False}, {"_id": 0}).sort("timestamp", -1)
+        return [Event(**doc) async for doc in cursor]
+
     async def get_event(self, event_id: str) -> Event | None:
         collection = await self._collection()
         doc = await collection.find_one({"event_id": event_id}, {"_id": 0})
@@ -132,7 +151,7 @@ class EventRepository:
         collection = await self._collection()
         doc = await collection.find_one_and_update(
             {"event_id": event_id, "is_finished": False},
-            {"$set": {"is_finished": True, "finished_at": datetime.now(UTC)}},
+            {"$set": {"is_finished": True, "finished_at": datetime.now(UTC), "arena_ids": []}},
             projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
@@ -178,7 +197,11 @@ class EventRepository:
             return None
         if player_name in event.players:
             raise ValueError("Player is already in the event")
-        updated = await self.update_event_fields(event_id, {"players": event.players + [player_name]})
+        players = event.players + [player_name]
+        updated = await self.update_event_fields(
+            event_id,
+            {"players": players, "suggested_arena_count": suggested_arena_count(len(players))},
+        )
         if updated:
             logger.info("Player %s added to event %s", player_name, event_id)
         return updated
@@ -189,11 +212,13 @@ class EventRepository:
             return None
         if player_name not in event.players:
             raise ValueError("Player is not in the event")
+        players = [p for p in event.players if p != player_name]
         updated = await self.update_event_fields(
             event_id,
             {
-                "players": [p for p in event.players if p != player_name],
+                "players": players,
                 "late_players": [p for p in event.late_players if p != player_name],
+                "suggested_arena_count": suggested_arena_count(len(players)),
             },
         )
         if updated:

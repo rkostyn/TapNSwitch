@@ -1,0 +1,12 @@
+This app is for tournament.ratscores.com.
+
+Keep the current TapNSwitch scoring app as-is for everyday / Checkfront group play.
+This copy is for tournament days.
+
+As a coach I want to load a tournament bracket from AxeScores.
+As a coach I want to load a tournament bracket from an Urban bracket.
+As a coach I want to assign players from that bracket onto Baltimore lanes.
+  - 6 colored arenas: red, green, blue, yellow, white, black
+  - Each arena has 2 lanes, so two people can throw at the same time
+As a coach I want to score those tournament matches on the assigned lanes.
+As a coach I want the floor view to show which bracket match is on which color.

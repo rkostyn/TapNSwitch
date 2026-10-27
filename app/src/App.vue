@@ -3,6 +3,7 @@
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './config'
+  import { arenaLabel } from './venue'
 
   const displayName = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
 
@@ -59,6 +60,7 @@
       player1Id: match.player_1_id,
       player2Id: match.player_2_id,
       eventName: event?.event_name ?? '',
+      arenaIds: event?.arena_ids ?? [],
       isFinished: match.is_finished,
     }
     showConfig.value = false
@@ -99,6 +101,7 @@
           <p v-if="activeGroup" class="modal-group-note">
             Group: {{ activeGroup.event_name }}
             <span v-if="activeGroup.checkfront_booking_code">({{ activeGroup.checkfront_booking_code }})</span>
+            <span v-if="activeGroup.arena_ids?.length"> · {{ arenaLabel(activeGroup.arena_ids) }}</span>
           </p>
 
           <label class="modal-label">Player 1 Name</label>

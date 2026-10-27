@@ -2,6 +2,7 @@
   import { ref, computed, watch } from 'vue'
   import UrbanScore from './UrbanScore.vue'
   import { GHOST_PLAYER_ID } from '../config'
+  import { arenaLabel } from '../venue'
   import {
     startRound as apiStartRound,
     submitThrow,
@@ -427,7 +428,10 @@
 <template>
   <div class="scoreboard-root">
     <div class="round-bar">
-      <span v-if="matchContext" class="event-banner">{{ matchContext.eventName }}</span>
+      <span v-if="matchContext" class="event-banner">
+        {{ matchContext.eventName }}
+        <span v-if="matchContext.arenaIds?.length" class="event-arenas">{{ arenaLabel(matchContext.arenaIds) }}</span>
+      </span>
       <span class="round-label">Round {{ displayRound }} of {{ totalRounds }}</span>
       <button v-if="viewedRound" class="editing-banner" @click="viewRound(currentRound)">
         Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
@@ -603,6 +607,12 @@
   text-transform: uppercase;
   letter-spacing: 2px;
   color: #34d399;
+}
+
+.event-arenas {
+  margin-left: 8px;
+  color: #fbbf24;
+  letter-spacing: 1px;
 }
 
 .sync-error {
