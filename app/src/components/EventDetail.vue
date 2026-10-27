@@ -89,24 +89,24 @@
     loading.value = true
     error.value = ''
     try {
-      const [ev, matchList, arenas] = await Promise.all([
-        getEvent(props.eventId),
-        getMatchesByEvent(props.eventId),
-        getVenueArenas().catch(() => []),
-      ])
-      event.value = ev
-      matches.value = matchList
-      venueArenas.value = arenas
-      pairingStyle.value = event.value.pairing_style === 'swiss' ? 'swiss' : 'round_robin'
+      event.value = await getEvent(props.eventId)
       configMatches.value = event.value.swiss_matches_per_player
       configRounds.value = event.value.swiss_rounds_per_match
       if (bracketGenerated.value) activeTab.value = 'bracket'
       playersCollapsed.value = swissGenerated.value
     } catch (e) {
+      event.value = null
       error.value = 'Failed to load event.'
-    } finally {
       loading.value = false
+      return
     }
+    const [matchList, arenas] = await Promise.all([
+      getMatchesByEvent(props.eventId).catch(() => []),
+      getVenueArenas().catch(() => []),
+    ])
+    matches.value = matchList
+    venueArenas.value = arenas ?? []
+    loading.value = false
   }
 
   onMounted(load)
@@ -266,6 +266,7 @@
     </div>
 
     <div v-if="loading" class="state-msg">Loading…</div>
+    <p v-else-if="error && !event" class="modal-error">{{ error }}</p>
     <template v-else-if="event">
       <p v-if="!event.arena_ids?.length && !event.is_finished" class="lane-note">Not on a lane yet. Open Lanes to put this group on a color.</p>
       <p v-if="error" class="modal-error">{{ error }}</p>
