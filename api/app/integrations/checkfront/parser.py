@@ -22,7 +22,9 @@ _SKIP_FIELD_KEYS = frozenset({
     "request",
 })
 
-_PLAYER_FIELD_HINTS = ("player", "thrower", "participant", "guest", "member")
+# "name" is back: Urban's roster field is often keyed `names` / labeled "Names".
+# customer_* keys are skipped below so first/last name meta is not treated as throwers.
+_PLAYER_FIELD_HINTS = ("player", "thrower", "participant", "guest", "member", "name")
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -111,20 +113,59 @@ def _split_name_list(value: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
-def _looks_like_player_field(key: str) -> bool:
+def _looks_like_player_field(key: str, label: str = "") -> bool:
     lowered = key.casefold()
     if lowered in _SKIP_FIELD_KEYS:
         return False
     if lowered.startswith("customer_"):
         return False
-    return any(hint in lowered for hint in _PLAYER_FIELD_HINTS)
+    blob = f"{lowered} {label.casefold()}".strip()
+    return any(hint in blob for hint in _PLAYER_FIELD_HINTS)
 
 
-def _extract_extra_player_names(fields: dict[str, Any], configured_keys: list[str]) -> list[str]:
+def _normalize_fields(raw: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    """Flatten Checkfront fields/meta (dict, dict-of-dicts, or list of field objects)."""
+    values: dict[str, Any] = {}
+    labels: dict[str, str] = {}
+    entries: list[tuple[str, Any]] = []
+    if isinstance(raw, list):
+        for index, entry in enumerate(raw):
+            if isinstance(entry, dict):
+                key = str(entry.get("id") or entry.get("key") or entry.get("name") or index)
+                entries.append((key, entry))
+            elif entry not in (None, ""):
+                entries.append((str(index), entry))
+    elif isinstance(raw, dict):
+        entries = [(str(key), value) for key, value in raw.items()]
+    else:
+        return values, labels
+
+    for key, raw_value in entries:
+        label = ""
+        lookup = key
+        stored = raw_value
+        if isinstance(raw_value, dict):
+            label = str(raw_value.get("lbl") or raw_value.get("label") or "").strip()
+            lookup = str(raw_value.get("id") or raw_value.get("key") or key).strip() or key
+            stored = raw_value
+        values[lookup] = stored
+        if key != lookup:
+            values.setdefault(key, stored)
+        if label:
+            labels[lookup] = label
+    return values, labels
+
+
+def _extract_extra_player_names(
+    fields: dict[str, Any],
+    configured_keys: list[str],
+    labels: dict[str, str] | None = None,
+) -> list[str]:
     names: list[str] = []
+    labels = labels or {}
     keys_to_scan = list(configured_keys)
     for key in fields:
-        if key not in keys_to_scan and _looks_like_player_field(key):
+        if key not in keys_to_scan and _looks_like_player_field(key, labels.get(key, "")):
             keys_to_scan.append(key)
 
     for key in keys_to_scan:
@@ -172,8 +213,8 @@ def _parse_booking_record(
 
     customer_raw = booking.get("customer")
     customer = _as_dict(customer_raw)
-    fields = _as_dict(booking.get("fields"))
-    meta = _as_dict(booking.get("meta"))
+    fields, field_labels = _normalize_fields(booking.get("fields"))
+    meta, meta_labels = _normalize_fields(booking.get("meta"))
     customer_name = (
         (_unwrap_field(customer_raw) if not isinstance(customer_raw, dict) else None)
         or _pick_str(customer, "name", "customer_name")
@@ -209,7 +250,11 @@ def _parse_booking_record(
             start_date = item_start
 
     configured_keys = player_field_keys or []
-    extra_names = _extract_extra_player_names({**meta, **fields}, configured_keys)
+    extra_names = _extract_extra_player_names(
+        {**meta, **fields},
+        configured_keys,
+        {**meta_labels, **field_labels},
+    )
     summary = _pick_str(booking, "summary")
     if not customer_name:
         customer_name = extra_names[0] if extra_names else (summary or code)

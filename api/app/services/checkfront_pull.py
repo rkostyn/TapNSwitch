@@ -54,13 +54,14 @@ async def pull_checkfront_bookings(
         if not booking_id:
             result.failed += 1
             continue
+        booking_code = str(entry.get("code") or "").strip() or None
 
         index_payload = {"booking/index": {booking_id: entry}}
         index_booking = parse_checkfront_payload(index_payload, player_field_keys=player_field_keys)
         payload = index_payload
         if fetch_detail:
             try:
-                payload = await api.get_booking(booking_id)
+                payload = await api.get_booking(booking_id, code=booking_code)
             except CheckfrontApiError:
                 logger.warning("Falling back to index data for Checkfront booking %s", booking_id)
                 payload = index_payload

@@ -254,6 +254,53 @@ def test_parse_keeps_booking_without_customer_using_code():
     assert booking.player_names == ["WALK-281026"]
 
 
+def test_parse_names_field_without_thrower_key():
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "fields": {
+                **SAMPLE_BOOKING["booking"]["fields"],
+                "names": "Alex Lee\nCasey Morgan\nDrew Patel",
+            },
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert booking.player_names == ["Jordan Smith", "Alex Lee", "Casey Morgan", "Drew Patel"]
+
+
+def test_parse_thrower_names_from_labeled_custom_field():
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "fields": {
+                "param_4": {"id": "param_4", "lbl": "Thrower Names", "value": "Alex Lee, Casey Morgan"},
+            },
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert "Alex Lee" in booking.player_names
+    assert "Casey Morgan" in booking.player_names
+
+
+def test_parse_fields_list_shape():
+    payload = {
+        "booking": {
+            "booking_id": 410,
+            "code": "NAME-281026",
+            "status_id": "PAID",
+            "customer_name": "Jordan Smith",
+            "fields": [
+                {"id": "thrower_names", "value": "Alex Lee, Casey Morgan"},
+            ],
+        }
+    }
+    booking = parse_checkfront_payload(payload, player_field_keys=["thrower_names"])
+    assert booking is not None
+    assert booking.player_names == ["Jordan Smith", "Alex Lee", "Casey Morgan"]
+
+
 def test_parse_unwraps_field_value_dicts():
     payload = {
         "booking": {
@@ -332,7 +379,7 @@ async def test_pull_checkfront_bookings(monkeypatch):
         async def list_bookings(self, *, start_date="today", status_id=None):
             return [API_INDEX_ENTRY]
 
-        async def get_booking(self, booking_id: str):
+        async def get_booking(self, booking_id: str, *, code: str | None = None):
             return API_BOOKING_DETAIL
 
     repo = EventRepository(FakeMongoClient())
