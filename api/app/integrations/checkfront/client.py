@@ -95,5 +95,11 @@ class CheckfrontApiClient:
             page += 1
         return entries
 
-    async def get_booking(self, booking_id: str) -> dict[str, Any]:
-        return await self._get(f"booking/{booking_id}")
+    async def get_booking(self, booking_id: str, *, code: str | None = None) -> dict[str, Any]:
+        try:
+            return await self._get(f"booking/{booking_id}")
+        except CheckfrontApiError:
+            if code and code != booking_id:
+                logger.info("Retrying Checkfront booking %s by code %s", booking_id, code)
+                return await self._get(f"booking/{code}")
+            raise
