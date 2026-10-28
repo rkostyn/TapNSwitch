@@ -29,14 +29,34 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _unwrap_field(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("value") or value.get("display") or value.get("text") or "").strip()
+    if isinstance(value, (list, tuple, set)):
+        return ""
+    return str(value).strip()
+
+
 def _pick_str(data: dict[str, Any], *keys: str) -> str | None:
     for key in keys:
-        value = data.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
+        text = _unwrap_field(data.get(key))
         if text:
             return text
+    return None
+
+
+def _full_name(*sources: dict[str, Any]) -> str | None:
+    for data in sources:
+        first = _pick_str(data, "customer_first_name", "first_name")
+        last = _pick_str(data, "customer_last_name", "last_name")
+        if first and last:
+            return f"{first} {last}"
+        if first:
+            return first
+        if last:
+            return last
     return None
 
 
@@ -113,10 +133,13 @@ def _extract_extra_player_names(fields: dict[str, Any], configured_keys: list[st
             continue
         if isinstance(raw, list):
             for entry in raw:
-                if entry:
-                    names.extend(_split_name_list(str(entry)))
+                text = _unwrap_field(entry) if isinstance(entry, dict) else (str(entry).strip() if entry else "")
+                if text:
+                    names.extend(_split_name_list(text))
         else:
-            names.extend(_split_name_list(str(raw)))
+            text = _unwrap_field(raw)
+            if text:
+                names.extend(_split_name_list(text))
     return names
 
 
@@ -147,17 +170,18 @@ def _parse_booking_record(
     if not code:
         return None
 
-    customer = _as_dict(booking.get("customer"))
+    customer_raw = booking.get("customer")
+    customer = _as_dict(customer_raw)
     fields = _as_dict(booking.get("fields"))
     meta = _as_dict(booking.get("meta"))
     customer_name = (
-        _pick_str(customer, "name", "customer_name")
+        (_unwrap_field(customer_raw) if not isinstance(customer_raw, dict) else None)
+        or _pick_str(customer, "name", "customer_name")
         or _pick_str(fields, "customer_name", "name")
         or _pick_str(meta, "customer_name", "name")
         or _pick_str(booking, "customer_name")
+        or _full_name(customer, fields, meta, booking)
     )
-    if not customer_name:
-        return None
 
     items = _normalize_items(_as_dict(booking.get("order")).get("items"))
     if not items:
@@ -186,6 +210,9 @@ def _parse_booking_record(
 
     configured_keys = player_field_keys or []
     extra_names = _extract_extra_player_names({**meta, **fields}, configured_keys)
+    summary = _pick_str(booking, "summary")
+    if not customer_name:
+        customer_name = extra_names[0] if extra_names else (summary or code)
 
     return CheckfrontBooking(
         booking_id=booking_id,
@@ -207,6 +234,7 @@ def _parse_booking_record(
         item_skus=item_skus,
         qty=max(qty_total, 1),
         extra_player_names=extra_names,
+        summary=summary,
     )
 
 

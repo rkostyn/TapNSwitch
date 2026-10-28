@@ -55,15 +55,30 @@ async def pull_checkfront_bookings(
             result.failed += 1
             continue
 
-        payload = {"booking/index": {booking_id: entry}}
+        index_payload = {"booking/index": {booking_id: entry}}
+        index_booking = parse_checkfront_payload(index_payload, player_field_keys=player_field_keys)
+        payload = index_payload
         if fetch_detail:
             try:
                 payload = await api.get_booking(booking_id)
             except CheckfrontApiError:
                 logger.warning("Falling back to index data for Checkfront booking %s", booking_id)
+                payload = index_payload
 
         booking = parse_checkfront_payload(payload, player_field_keys=player_field_keys)
         if booking is None:
+            booking = index_booking
+        elif index_booking:
+            if not booking.customer_name and index_booking.customer_name:
+                booking.customer_name = index_booking.customer_name
+            if not booking.extra_player_names and index_booking.extra_player_names:
+                booking.extra_player_names = index_booking.extra_player_names
+            if booking.start_date is None and index_booking.start_date is not None:
+                booking.start_date = index_booking.start_date
+            if not booking.item_skus and index_booking.item_skus:
+                booking.item_skus = index_booking.item_skus
+        if booking is None:
+            logger.info("Skipping Checkfront booking %s: could not parse", booking_id)
             result.skipped += 1
             continue
 

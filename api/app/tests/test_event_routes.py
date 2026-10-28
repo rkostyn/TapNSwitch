@@ -102,6 +102,42 @@ async def test_checkfront_active_defaults_to_today(client, auth_token, mongo_cli
     assert "YDAY-001" not in codes
 
 
+@pytest.mark.asyncio
+async def test_checkfront_active_hides_placeholder_bookings(client, auth_token, mongo_client):
+    from datetime import UTC, datetime, time
+    from zoneinfo import ZoneInfo
+
+    from app.repositories.event_repository import EventRepository
+    from app.models.event import EventCreate
+
+    tz = ZoneInfo("America/New_York")
+    today_start = datetime.combine(datetime.now(tz).date(), time.min, tzinfo=tz).astimezone(UTC)
+    repo = EventRepository(mongo_client)
+    await repo.create_checkfront_event(
+        EventCreate(event_name="Brian Party (ABCD-281026)", players=["Brian"], start_timestamp=today_start),
+        booking_id="real-1",
+        booking_code="ABCD-281026",
+        session_key=None,
+    )
+    await repo.create_checkfront_event(
+        EventCreate(
+            event_name="Leagueplaceholder (NSKZ-200626)",
+            players=["Leagueplaceholder"],
+            start_timestamp=today_start,
+        ),
+        booking_id="ph-1",
+        booking_code="NSKZ-200626",
+        session_key=None,
+        item_skus=["leagueplaceholder"],
+    )
+
+    response = client.get("/event/checkfront/active", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    codes = [e.get("checkfront_booking_code") for e in response.json()]
+    assert "ABCD-281026" in codes
+    assert "NSKZ-200626" not in codes
+
+
 def test_create_event_unauthenticated(client):
     response = client.post("/event", json=EVENT_PAYLOAD)
     assert response.status_code == 401

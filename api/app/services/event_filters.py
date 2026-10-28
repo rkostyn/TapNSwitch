@@ -48,6 +48,13 @@ def event_search_mongo_filter(search: str) -> dict:
     }
 
 
+def is_placeholder_event_doc(doc: dict) -> bool:
+    """Drop Checkfront template rows (Leagueplaceholder / Walkinplaceholder), not real groups on those items."""
+    chunks = [str(doc.get("event_name") or "")]
+    chunks.extend(str(player) for player in (doc.get("players") or []))
+    return any("placeholder" in chunk.casefold() for chunk in chunks)
+
+
 def merge_mongo_filters(*filters: dict) -> dict:
     parts = [f for f in filters if f]
     if not parts:

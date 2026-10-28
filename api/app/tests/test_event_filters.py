@@ -1,7 +1,12 @@
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from app.services.event_filters import day_bounds_utc, event_on_date_mongo_filter, event_search_mongo_filter
+from app.services.event_filters import (
+    day_bounds_utc,
+    event_on_date_mongo_filter,
+    event_search_mongo_filter,
+    is_placeholder_event_doc,
+)
 
 
 def test_day_bounds_utc_eastern():
@@ -27,3 +32,15 @@ def test_event_on_date_filter_shape():
     filt = event_on_date_mongo_filter(date(2026, 7, 21))
     assert "$or" in filt
     assert len(filt["$or"]) == 2
+
+
+def test_placeholder_event_doc():
+    assert is_placeholder_event_doc({"event_name": "Leagueplaceholder (NSKZ-200626)"})
+    assert is_placeholder_event_doc({"players": ["Walkinplaceholder"]})
+    assert not is_placeholder_event_doc(
+        {
+            "event_name": "Brian Party (ABCD-281026)",
+            "players": ["Brian"],
+            "checkfront_item_skus": ["walkinplaceholder"],
+        }
+    )
