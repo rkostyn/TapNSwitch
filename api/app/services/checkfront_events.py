@@ -1,12 +1,17 @@
 import os
 
 from app.integrations.checkfront.models import CheckfrontBooking
+from app.logger import get_logger
 from app.models.event import Event, EventCreate
 from app.repositories.event_repository import EventRepository
+from app.services.event_filters import is_placeholder_event_doc
 from app.venue import guess_arena_ids, suggested_arena_count
 
+logger = get_logger(__name__)
+
 CHECKFRONT_CREATED_BY = "checkfront"
-DEFAULT_ACCEPT_STATUSES = {"PAID", "CONF", "PEND", "HOLD", "WAIT"}
+# STOP/PREP are Checkfront's arrived / about-to-arrive statuses on the floor.
+DEFAULT_ACCEPT_STATUSES = {"PAID", "CONF", "PEND", "HOLD", "WAIT", "STOP", "PREP"}
 
 
 def _configured_statuses() -> set[str]:
@@ -43,12 +48,27 @@ def _merge_players(existing: list[str], incoming: list[str]) -> list[str]:
     return merged
 
 
+def is_placeholder_booking(booking: CheckfrontBooking) -> bool:
+    return is_placeholder_event_doc(
+        {
+            "event_name": booking.event_name,
+            "players": booking.player_names,
+        }
+    )
+
+
 async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBooking) -> Event | None:
+    if is_placeholder_booking(booking):
+        logger.info("Skipping Checkfront booking %s: placeholder item", booking.code)
+        return None
+
     if booking.status and booking.status not in _configured_statuses():
+        logger.info("Skipping Checkfront booking %s: status %s", booking.code, booking.status)
         return None
 
     players = booking.player_names
     if not players:
+        logger.info("Skipping Checkfront booking %s: no players", booking.code)
         return None
 
     group_mode = _group_mode()
@@ -59,6 +79,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
                 return existing
             updated_players = _merge_players(existing.players, players)
             fields: dict = {
+                "event_name": booking.event_name,
                 "players": updated_players,
                 "checkfront_booking_code": booking.code,
                 **_lane_hints(booking, updated_players),
@@ -97,6 +118,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
             return await repo.update_event_fields(
                 existing.event_id,
                 {
+                    "event_name": booking.event_name,
                     "players": updated_players,
                     "checkfront_booking_ids": booking_ids,
                     "checkfront_booking_code": booking.code,
@@ -112,6 +134,7 @@ async def sync_checkfront_booking(repo: EventRepository, booking: CheckfrontBook
         return await repo.update_event_fields(
             existing.event_id,
             {
+                "event_name": booking.event_name,
                 "players": updated_players,
                 "checkfront_booking_code": booking.code,
                 **_lane_hints(booking, updated_players),

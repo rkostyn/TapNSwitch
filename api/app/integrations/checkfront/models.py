@@ -15,6 +15,7 @@ class CheckfrontBooking:
     item_skus: list[str] = field(default_factory=list)
     qty: int = 1
     extra_player_names: list[str] = field(default_factory=list)
+    summary: str | None = None
 
     @property
     def session_key(self) -> str | None:
@@ -39,7 +40,12 @@ class CheckfrontBooking:
 
     @property
     def event_name(self) -> str:
+        name = (self.customer_name or "").strip()
+        if name and name.casefold() != (self.code or "").casefold() and "placeholder" not in name.casefold():
+            return f"{name} ({self.code})"
         if self.item_skus:
             label = self.item_skus[0].replace("-", " ").replace("_", " ").title()
             return f"{label} ({self.code})"
+        if self.summary:
+            return f"{self.summary} ({self.code})"
         return f"Checkfront {self.code}"
