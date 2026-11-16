@@ -1,7 +1,6 @@
 import base64
 
-import pytest
-
+from app.db.mongo import DB_NAME
 from app.models.auth import LoginRequest, RegisterRequest
 
 # Registration token seeded in conftest._seed_test_data
@@ -165,7 +164,7 @@ def test_logout_invalidates_token(client):
 def test_register_token_not_consumed_on_duplicate_username(client):
     """Fix 1: a failed registration must not burn the token."""
     from app.tests.conftest import _fake_mongo
-    tokens = _fake_mongo._get_or_create("axes", "registration_tokens")
+    tokens = _fake_mongo._get_or_create(DB_NAME, "registration_tokens")
     tokens._docs.append({"token": "preserve-test-token"})
 
     # First attempt fails — username already exists

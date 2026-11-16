@@ -2,9 +2,11 @@
 
 import os
 from typing import Any
+
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from starlette.responses import Response
+
 from app import template_filters
 
 

@@ -4,37 +4,247 @@ Used to replace real database connections in tests.
 """
 import copy
 import json
+import re
 import time
-
+import uuid
 
 # ---------------------------------------------------------------------------
 # MongoDB query helpers
 # ---------------------------------------------------------------------------
 
+_MISSING = object()
+
+
+class UnsupportedQueryOperator(NotImplementedError):
+    """Raised when a query uses an operator the fake does not implement."""
+
+
+def _get_path(doc, path: str):
+    """Resolve a (possibly dotted) field path; returns _MISSING if absent."""
+    cur = doc
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            if part not in cur:
+                return _MISSING
+            cur = cur[part]
+        elif isinstance(cur, list) and part.isdigit() and int(part) < len(cur):
+            cur = cur[int(part)]
+        else:
+            return _MISSING
+    return cur
+
+
+def _candidates(value):
+    """Values a scalar condition is tested against: the value itself plus,
+    for arrays, each element (MongoDB array-matching semantics)."""
+    if isinstance(value, list):
+        return [value, *value]
+    return [value]
+
+
+def _eq(value, target) -> bool:
+    if isinstance(target, re.Pattern):
+        return _regex_match(value, target)
+    if target is None:
+        # {field: None} matches missing fields, explicit nulls, and arrays containing null.
+        return value is _MISSING or any(c is None for c in _candidates(value))
+    if value is _MISSING:
+        return False
+    return any(c == target for c in _candidates(value))
+
+
+def _regex_match(value, pattern: re.Pattern) -> bool:
+    if value is _MISSING:
+        return False
+    return any(isinstance(c, str) and pattern.search(c) for c in _candidates(value))
+
+
+def _compile_regex(pattern, options: str = "") -> re.Pattern:
+    if isinstance(pattern, re.Pattern):
+        if not options:
+            return pattern
+        pattern = pattern.pattern
+    flags = 0
+    for opt in options:
+        if opt == "i":
+            flags |= re.IGNORECASE
+        elif opt == "m":
+            flags |= re.MULTILINE
+        elif opt == "s":
+            flags |= re.DOTALL
+        elif opt == "x":
+            flags |= re.VERBOSE
+        else:
+            raise UnsupportedQueryOperator(f"Unsupported $regex option: {opt!r}")
+    return re.compile(pattern, flags)
+
+
+def _compare(value, target, op) -> bool:
+    if value is _MISSING or target is None:
+        return False
+    for c in _candidates(value):
+        if c is None or isinstance(c, list):
+            continue
+        try:
+            if op(c, target):
+                return True
+        except TypeError:
+            # MongoDB only compares values of the same BSON type bracket.
+            continue
+    return False
+
+
+_COMPARATORS = {
+    "$gt": lambda a, b: a > b,
+    "$gte": lambda a, b: a >= b,
+    "$lt": lambda a, b: a < b,
+    "$lte": lambda a, b: a <= b,
+}
+
+
+def _is_operator_expr(value) -> bool:
+    return isinstance(value, dict) and bool(value) and all(
+        isinstance(k, str) and k.startswith("$") for k in value
+    )
+
+
+def _matches_condition(value, cond: dict) -> bool:
+    for op, op_val in cond.items():
+        if op == "$eq":
+            ok = _eq(value, op_val)
+        elif op == "$ne":
+            ok = not _eq(value, op_val)
+        elif op == "$in":
+            ok = any(_eq(value, t) for t in op_val)
+        elif op == "$nin":
+            ok = not any(_eq(value, t) for t in op_val)
+        elif op in _COMPARATORS:
+            ok = _compare(value, op_val, _COMPARATORS[op])
+        elif op == "$size":
+            ok = isinstance(value, list) and len(value) == op_val
+        elif op == "$exists":
+            ok = (value is not _MISSING) == bool(op_val)
+        elif op == "$regex":
+            ok = _regex_match(value, _compile_regex(op_val, cond.get("$options", "")))
+        elif op == "$options":
+            if "$regex" not in cond:
+                raise UnsupportedQueryOperator("$options without $regex")
+            ok = True
+        elif op == "$not":
+            if isinstance(op_val, re.Pattern):
+                ok = not _regex_match(value, op_val)
+            elif _is_operator_expr(op_val):
+                ok = not _matches_condition(value, op_val)
+            else:
+                raise UnsupportedQueryOperator("$not requires an operator expression or regex")
+        else:
+            raise UnsupportedQueryOperator(f"Fake Mongo does not implement query operator {op!r}")
+        if not ok:
+            return False
+    return True
+
+
 def _matches_filter(doc: dict, filter_query: dict) -> bool:
+    """Evaluate a MongoDB query filter against a document.
+
+    Implements the subset of the query language the app uses, with real
+    MongoDB semantics. Any operator not implemented raises
+    UnsupportedQueryOperator rather than silently not matching.
+    """
     if not filter_query:
         return True
     for key, value in filter_query.items():
-        if key == "$or":
+        if key == "$and":
+            if not all(_matches_filter(doc, sub) for sub in value):
+                return False
+        elif key == "$or":
             if not any(_matches_filter(doc, sub) for sub in value):
                 return False
-        elif isinstance(value, dict):
-            for op, op_val in value.items():
-                if op == "$in":
-                    if doc.get(key) not in op_val:
-                        return False
-                else:
-                    return False
+        elif key == "$nor":
+            if any(_matches_filter(doc, sub) for sub in value):
+                return False
+        elif key.startswith("$"):
+            raise UnsupportedQueryOperator(f"Fake Mongo does not implement top-level operator {key!r}")
         else:
-            if doc.get(key) != value:
+            field_value = _get_path(doc, key)
+            if _is_operator_expr(value):
+                if not _matches_condition(field_value, value):
+                    return False
+            elif not _eq(field_value, value):
                 return False
     return True
 
 
+class FakeWriteError(Exception):
+    """Stands in for pymongo's WriteError on an update real MongoDB rejects."""
+
+
+def _array_field(doc: dict, key: str, op: str) -> list:
+    """The array at ``key``, created empty if missing; non-arrays are an error,
+    as in MongoDB."""
+    if "." in key:
+        raise UnsupportedQueryOperator(f"Fake Mongo does not implement dotted paths in {op}")
+    if key not in doc:
+        doc[key] = []
+    if not isinstance(doc[key], list):
+        raise FakeWriteError(f"Cannot apply {op} to non-array field {key!r}")
+    return doc[key]
+
+
+def _each(value) -> list:
+    if isinstance(value, dict) and "$each" in value:
+        if set(value) != {"$each"}:
+            raise UnsupportedQueryOperator(f"Unsupported modifiers: {sorted(value)}")
+        return list(value["$each"])
+    return [value]
+
+
+def _pull_matches(element, condition) -> bool:
+    if _is_operator_expr(condition):
+        return _matches_condition(element, condition)
+    if isinstance(condition, dict):
+        # A query on embedded document fields.
+        return isinstance(element, dict) and _matches_filter(element, condition)
+    return element == condition
+
+
 def _apply_update(doc: dict, update: dict) -> dict:
-    if "$set" in update:
-        for k, v in update["$set"].items():
-            doc[k] = v
+    """Apply update operators to ``doc`` in place with MongoDB semantics:
+    all-or-nothing, one operator per field, unknown operators raise."""
+    seen: set[str] = set()
+    for fields in update.values():
+        for key in fields:
+            if key in seen:
+                raise FakeWriteError(f"Updating the path {key!r} would create a conflict")
+            seen.add(key)
+    staged = _apply_update_ops(copy.deepcopy(doc), update)
+    doc.clear()
+    doc.update(staged)
+    return doc
+
+
+def _apply_update_ops(doc: dict, update: dict) -> dict:
+    for op, fields in update.items():
+        if op == "$set":
+            for k, v in fields.items():
+                doc[k] = copy.deepcopy(v)
+        elif op == "$addToSet":
+            for k, v in fields.items():
+                arr = _array_field(doc, k, op)
+                for item in _each(v):
+                    if item not in arr:
+                        arr.append(copy.deepcopy(item))
+        elif op == "$push":
+            for k, v in fields.items():
+                _array_field(doc, k, op).extend(copy.deepcopy(_each(v)))
+        elif op == "$pull":
+            for k, cond in fields.items():
+                if k not in doc:
+                    continue
+                arr = _array_field(doc, k, op)
+                arr[:] = [e for e in arr if not _pull_matches(e, cond)]
+        else:
+            raise UnsupportedQueryOperator(f"Fake Mongo does not implement update operator {op!r}")
     return doc
 
 
@@ -93,7 +303,7 @@ class FakeCursor:
         try:
             return next(self._iter)
         except StopIteration:
-            raise StopAsyncIteration
+            raise StopAsyncIteration from None
 
     async def to_list(self, length=None):
         docs = self._get_docs()
@@ -163,10 +373,14 @@ class FakeCollection:
         return None
 
     async def find_one_and_update(self, filter_query, update, projection=None, return_document=None):
+        # pymongo returns the document as it was before the update unless
+        # return_document=ReturnDocument.AFTER (which is True).
         for doc in self._docs:
             if _matches_filter(doc, filter_query):
+                before = copy.deepcopy(doc)
                 _apply_update(doc, update)
-                return _apply_projection(copy.deepcopy(doc), projection)
+                result = doc if return_document else before
+                return _apply_projection(copy.deepcopy(result), projection)
         return None
 
     async def update_one(self, filter_query, update):
@@ -310,6 +524,20 @@ class FakeRedisClient:
     async def expire(self, key: str, seconds: int):
         if key in self._store or key in self._counters:
             self._expires[key] = time.monotonic() + seconds
+
+    async def acquire_lock(self, key: str, ttl_seconds: int):
+        if self._expired(key):
+            self._evict(key)
+        if key in self._store:
+            return None
+        token = uuid.uuid4().hex
+        self._store[key] = token
+        self._expires[key] = time.monotonic() + ttl_seconds
+        return token
+
+    async def release_lock(self, key: str, token: str):
+        if self._store.get(key) == token:
+            self._evict(key)
 
     async def delete(self, key: str):
         self._store.pop(key, None)

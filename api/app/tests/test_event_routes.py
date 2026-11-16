@@ -1,5 +1,7 @@
 import pytest
 
+from app.db.mongo import DB_NAME
+
 EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 
 
@@ -73,8 +75,8 @@ async def test_checkfront_active_defaults_to_today(client, auth_token, mongo_cli
     from datetime import UTC, datetime, time, timedelta
     from zoneinfo import ZoneInfo
 
-    from app.repositories.event_repository import EventRepository
     from app.models.event import EventCreate
+    from app.repositories.event_repository import EventRepository
 
     tz = ZoneInfo("America/New_York")
     today = datetime.now(tz).date()
@@ -107,8 +109,8 @@ async def test_checkfront_active_hides_placeholder_bookings(client, auth_token, 
     from datetime import UTC, datetime, time
     from zoneinfo import ZoneInfo
 
-    from app.repositories.event_repository import EventRepository
     from app.models.event import EventCreate
+    from app.repositories.event_repository import EventRepository
 
     tz = ZoneInfo("America/New_York")
     today_start = datetime.combine(datetime.now(tz).date(), time.min, tzinfo=tz).astimezone(UTC)
@@ -186,7 +188,7 @@ def test_unlock_event(client, auth_token):
 async def test_unlock_event_wrong_user(client, auth_token, mongo_client):
     event_id = client.post("/event", json=EVENT_PAYLOAD, headers=auth_headers(auth_token)).json()["event_id"]
     client.post(f"/event/{event_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "events")
+    collection = await mongo_client.get_collection(DB_NAME, "events")
     await collection.update_one({"event_id": event_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post(f"/event/{event_id}/unlock", headers=auth_headers(auth_token))
     assert response.status_code == 403
@@ -413,6 +415,194 @@ def test_generate_round_robin_is_default(client, auth_token):
         counts[m["player_1_id"]] = counts.get(m["player_1_id"], 0) + 1
         counts[m["player_2_id"]] = counts.get(m["player_2_id"], 0) + 1
     assert all(c == 3 for c in counts.values())
+
+
+# Tournament events: swiss is the default pairing style, so the swiss-config
+# call above is not needed. Ported from the former tournaments/api copy.
+
+def _tournament(client, auth_token, **extra):
+    return _create_event(client, auth_token, event_type="tournament", **extra)
+
+
+def test_tournament_event_defaults_to_swiss(client, auth_token):
+    event = _tournament(client, auth_token)
+    assert event["event_type"] == "tournament"
+    assert event["pairing_style"] == "swiss"
+    response = client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token))
+    assert response.status_code == 200
+    matches = response.json()
+    assert len(matches) == 4  # 4 players x 2 matches each / 2 players per match
+    counts = {}
+    for m in matches:
+        assert m["match_type"] == "swiss"
+        assert m["rounds_per_match"] == 2
+        counts[m["player_1_id"]] = counts.get(m["player_1_id"], 0) + 1
+        counts[m["player_2_id"]] = counts.get(m["player_2_id"], 0) + 1
+    assert all(c == 2 for c in counts.values())
+
+
+def test_tournament_event_late_entry_gets_swiss_quota(client, auth_token):
+    event_id = _tournament(client, auth_token)["event_id"]
+    matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    _submit_round_throws(client, auth_token, matches[0], 1, 5, 1)
+    client.post(f"/event/{event_id}/player", json={"player_name": "Eve"}, headers=auth_headers(auth_token))
+    all_matches = client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token)).json()
+    eve_matches = [m for m in all_matches if "Eve" in (m["player_1_id"], m["player_2_id"])]
+    assert len(eve_matches) == 2
+
+
+def test_tournament_event_round_robin_still_selectable(client, auth_token):
+    event = _tournament(client, auth_token)
+    response = client.put(
+        f"/event/{event['event_id']}/swiss-config",
+        json={"swiss_matches_per_player": 2, "swiss_rounds_per_match": 2, "pairing_style": "round_robin"},
+        headers=auth_headers(auth_token),
+    )
+    assert response.json()["pairing_style"] == "round_robin"
+    matches = client.post(f"/event/{event['event_id']}/swiss/generate", headers=auth_headers(auth_token)).json()
+    assert len(matches) == 6
+
+
+def test_create_event_defaults_to_standard(client, auth_token):
+    event = _create_event(client, auth_token)
+    assert event["event_type"] == "standard"
+    fetched = client.get(f"/event/{event['event_id']}").json()
+    assert (fetched["event_type"], fetched["pairing_style"]) == ("standard", "round_robin")
+
+
+def test_create_event_with_type_round_trips(client, auth_token):
+    event = _tournament(client, auth_token)
+    fetched = client.get(f"/event/{event['event_id']}").json()
+    assert (fetched["event_type"], fetched["pairing_style"]) == ("tournament", "swiss")
+
+
+def test_create_event_rejects_unknown_type(client, auth_token):
+    response = client.post(
+        "/event",
+        json={"event_name": "X", "players": ["A", "B"], "event_type": "league"},
+        headers=auth_headers(auth_token),
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_checkfront_event_is_standard(mongo_client):
+    from app.models.event import EventCreate
+    from app.repositories.event_repository import EventRepository
+
+    repo = EventRepository(mongo_client)
+    # Even if a caller hands in a tournament EventCreate, imports are standard.
+    create = EventCreate(event_name="Group", players=["A", "B"], event_type="tournament")
+    event = await repo.create_checkfront_event(create, booking_id="pm-1", booking_code="PM-1", session_key=None)
+    assert (event.event_type, event.pairing_style) == ("standard", "round_robin")
+
+
+@pytest.mark.asyncio
+async def test_legacy_event_without_type_reads_as_standard(client, auth_token, mongo_client):
+    from datetime import UTC, datetime
+
+    from app.db.mongo import DB_NAME
+
+    events = await mongo_client.get_collection(DB_NAME, "events")
+    # A document from before event types (and before pairing styles) existed.
+    await events.insert_one({
+        "event_id": "legacy-event-1", "event_name": "Old group", "players": ["A", "B", "C"],
+        "created_by": "u", "timestamp": datetime.now(UTC), "is_finished": False,
+    })
+    fetched = client.get("/event/legacy-event-1").json()
+    assert (fetched["event_type"], fetched["pairing_style"]) == ("standard", "round_robin")
+    # The type switch's conditional write must treat the missing field as standard.
+    switched = client.put(
+        "/event/legacy-event-1/type", json={"event_type": "tournament"}, headers=auth_headers(auth_token),
+    )
+    assert switched.status_code == 200
+    assert (switched.json()["event_type"], switched.json()["pairing_style"]) == ("tournament", "swiss")
+
+
+# PUT /event/{event_id}/type
+
+def _set_type(client, auth_token, event_id, event_type):
+    return client.put(f"/event/{event_id}/type", json={"event_type": event_type}, headers=auth_headers(auth_token))
+
+
+def test_set_type_standard_to_tournament_resets_style(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    response = _set_type(client, auth_token, event_id, "tournament")
+    assert response.status_code == 200
+    assert (response.json()["event_type"], response.json()["pairing_style"]) == ("tournament", "swiss")
+    assert client.get(f"/event/{event_id}").json()["event_type"] == "tournament"
+
+
+def test_set_type_tournament_to_standard_resets_style(client, auth_token):
+    event_id = _tournament(client, auth_token)["event_id"]
+    response = _set_type(client, auth_token, event_id, "standard")
+    assert response.status_code == 200
+    assert (response.json()["event_type"], response.json()["pairing_style"]) == ("standard", "round_robin")
+
+
+def test_set_type_resets_a_style_staff_picked(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    _set_swiss(client, auth_token, event_id)
+    assert _set_type(client, auth_token, event_id, "tournament").json()["pairing_style"] == "swiss"
+    assert _set_type(client, auth_token, event_id, "standard").json()["pairing_style"] == "round_robin"
+    # Staff can still change the style afterwards.
+    assert _set_swiss(client, auth_token, event_id)["pairing_style"] == "swiss"
+
+
+def test_set_type_to_current_type_is_noop(client, auth_token):
+    event_id = _tournament(client, auth_token)["event_id"]
+    client.put(
+        f"/event/{event_id}/swiss-config",
+        json={"swiss_matches_per_player": 2, "swiss_rounds_per_match": 2, "pairing_style": "round_robin"},
+        headers=auth_headers(auth_token),
+    )
+    response = _set_type(client, auth_token, event_id, "tournament")
+    assert response.status_code == 200
+    assert (response.json()["event_type"], response.json()["pairing_style"]) == ("tournament", "round_robin")
+
+
+def test_set_type_unknown_event_is_404(client, auth_token):
+    assert _set_type(client, auth_token, "no-such-event", "tournament").status_code == 404
+
+
+def test_set_type_finished_event_is_423(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    client.post(f"/event/{event_id}/finish", headers=auth_headers(auth_token))
+    assert _set_type(client, auth_token, event_id, "tournament").status_code == 423
+
+
+def test_set_type_after_swiss_generation_is_409(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    client.post(f"/event/{event_id}/swiss/generate", headers=auth_headers(auth_token))
+    response = _set_type(client, auth_token, event_id, "tournament")
+    assert response.status_code == 409
+    assert isinstance(response.json()["detail"], str)
+    assert client.get(f"/event/{event_id}").json()["event_type"] == "standard"
+
+
+def test_set_type_after_manual_match_is_409(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    created = client.post(
+        "/match",
+        json={"event_id": event_id, "player_1_id": "Alice", "player_2_id": "Bob", "sequence": 1},
+        headers=auth_headers(auth_token),
+    )
+    assert created.status_code == 200
+    response = _set_type(client, auth_token, event_id, "tournament")
+    assert response.status_code == 409
+    assert isinstance(response.json()["detail"], str)
+
+
+def test_set_type_rejects_unknown_type(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    assert _set_type(client, auth_token, event_id, "league").status_code == 422
+
+
+def test_set_type_unauthenticated(client, auth_token):
+    event_id = _create_event(client, auth_token)["event_id"]
+    response = client.put(f"/event/{event_id}/type", json={"event_type": "tournament"})
+    assert response.status_code == 401
+    assert client.get(f"/event/{event_id}").json()["event_type"] == "standard"
 
 
 def test_generate_swiss_matches(client, auth_token):

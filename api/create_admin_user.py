@@ -48,7 +48,7 @@ def main():
     print(json.dumps(doc, indent=2))
 
     credentials_b64 = base64.b64encode(f"{args.username}:{password}".encode()).decode()
-    print(f"\n--- Login credentials (base64 for API/admin) ---")
+    print("\n--- Login credentials (base64 for API/admin) ---")
     print(f"credentials: {credentials_b64}")
 
     if args.insert:
@@ -56,7 +56,7 @@ def main():
             from pymongo import MongoClient
         except ImportError:
             print("\nERROR: pymongo is not installed. Run: pip install pymongo")
-            raise SystemExit(1)
+            raise SystemExit(1) from None
 
         client = MongoClient(args.mongo_uri)
         result = client["axes"]["users"].insert_one(doc)

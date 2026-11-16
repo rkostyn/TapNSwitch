@@ -1,11 +1,11 @@
 """Recompute match winners from throws and keep bracket progression in sync."""
 from app.db.mongo import MongoClient
+from app.logger import get_logger
 from app.models.match import Match
 from app.models.throw import ThrowsGet
 from app.repositories.match_repository import MatchRepository
 from app.repositories.throw_repository import ThrowRepository
 from app.services.tournament import compute_match_winner
-from app.logger import get_logger
 
 logger = get_logger(__name__)
 

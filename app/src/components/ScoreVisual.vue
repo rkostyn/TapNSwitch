@@ -1,25 +1,37 @@
-<script setup>
+<script setup lang="ts">
   import { computed } from 'vue'
+  import type { TvRoundRow, TvThrow } from '../displaySync'
 
-  const props = defineProps({
-    leftName: { type: String, default: 'Player 1' },
-    rightName: { type: String, default: 'Player 2' },
-    player1Name: { type: String, default: '' },
-    player2Name: { type: String, default: '' },
-    leftScores: { type: Array, default: () => [] },
-    rightScores: { type: Array, default: () => [] },
-    displayRound: { type: Number, default: 1 },
-    totalRounds: { type: Number, default: 3 },
-    showTiebreak: { type: Boolean, default: false },
-    roundRows: { type: Array, default: () => [] },
+  const props = withDefaults(defineProps<{
+    leftName?: string
+    rightName?: string
+    player1Name?: string
+    player2Name?: string
+    leftScores?: Array<TvThrow | null>
+    rightScores?: Array<TvThrow | null>
+    displayRound?: number
+    totalRounds?: number
+    showTiebreak?: boolean
+    roundRows?: TvRoundRow[]
+  }>(), {
+    leftName: 'Player 1',
+    rightName: 'Player 2',
+    player1Name: '',
+    player2Name: '',
+    leftScores: () => [],
+    rightScores: () => [],
+    displayRound: 1,
+    totalRounds: 3,
+    showTiebreak: false,
+    roundRows: () => [],
   })
 
-  function throwTotal(scores) {
-    return (scores ?? []).reduce((sum, item) => sum + (item ? item.value : 0), 0)
+  function throwTotal(scores: Array<TvThrow | null>): number {
+    return scores.reduce((sum, item) => sum + (item ? item.value : 0), 0)
   }
 
   const slotCount = computed(() =>
-    Math.max(props.leftScores?.length ?? 0, props.rightScores?.length ?? 0, 5)
+    Math.max(props.leftScores.length, props.rightScores.length, 5)
   )
 </script>
 
@@ -46,14 +58,14 @@
         <div class="scoreboard-row" v-for="i in slotCount" :key="i">
           <div class="score-cell" :class="{ filled: leftScores[i - 1] }">
             <template v-if="leftScores[i - 1]">
-              {{ leftScores[i - 1].value }}<sup v-if="leftScores[i - 1].drop" class="drop-marker">d</sup>
+              {{ leftScores[i - 1]?.value }}<sup v-if="leftScores[i - 1]?.drop" class="drop-marker">d</sup>
             </template>
             <template v-else>–</template>
           </div>
           <div class="round-num">{{ i }}</div>
           <div class="score-cell" :class="{ filled: rightScores[i - 1] }">
             <template v-if="rightScores[i - 1]">
-              {{ rightScores[i - 1].value }}<sup v-if="rightScores[i - 1].drop" class="drop-marker">d</sup>
+              {{ rightScores[i - 1]?.value }}<sup v-if="rightScores[i - 1]?.drop" class="drop-marker">d</sup>
             </template>
             <template v-else>–</template>
           </div>

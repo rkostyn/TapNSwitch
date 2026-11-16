@@ -1,257 +1,83 @@
-<script setup>
-  import { ref, computed, onMounted } from 'vue'
-  import {
-    getEvent,
-    getVenueArenas,
-    addPlayer,
-    removePlayer,
-    setPlayerLate,
-    updateSwissConfig,
-    generateSwissMatches,
-    generateSwissScores,
-    generateBracket,
-    getMatchesByEvent,
-    lockMatch,
-    updateMatchRounds,
-    finishEvent,
-  } from '../api'
+<script setup lang="ts">
+  import { ref, onMounted } from 'vue'
   import { getOrCreateClientId } from '../clientId'
-  import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from '../config'
+  import { EVENT_TYPE_OPTIONS } from '../eventType'
+  import { matchLabel, matchStatus } from '../eventMatches'
+  import { holderLabel as lockHolderLabel } from '../matchLock'
+  import type { SelectMatchPayload } from '../match'
+  import { laneLabel } from '../venue'
+  import { useEventDetail } from '../composables/useEventDetail'
   import BracketView from './BracketView.vue'
   import ArenaChips from './ArenaChips.vue'
 
-  const props = defineProps(['eventId'])
-  const emit = defineEmits(['back', 'selectMatch'])
+  const props = defineProps<{ eventId: string }>()
+  const emit = defineEmits<{
+    back: []
+    selectMatch: [payload: SelectMatchPayload]
+  }>()
 
   const clientId = getOrCreateClientId()
-
-  const event = ref(null)
-  const matches = ref([])
-  const venueArenas = ref([])
-  const loading = ref(true)
-  const error = ref('')
-  const busy = ref(false)
+  const holderLabel = (lockedBy: string | null) => lockHolderLabel(lockedBy, clientId)
 
   // 'swiss' | 'bracket' — bracket becomes the default once it exists
-  const activeTab = ref('swiss')
+  const activeTab = ref<'swiss' | 'bracket'>('swiss')
 
   // Players collapse out of the way once the swiss stage is generated, but
   // stay reachable so late arrivals can still be marked
   const playersCollapsed = ref(false)
 
-  const newPlayer = ref('')
-  const pairingStyle = ref('round_robin')
-  const configMatches = ref(2)
-  const configRounds = ref(2)
-
-  // After Swiss matches exist, adding a player re-opens the generate controls so
-  // the schedule can be rebuilt to include them.
-  const needsRegen = ref(false)
-
-  const showBracketPrompt = ref(false)
-  const bracketRounds = ref(3)
-
-  // Takeover state: a match another device holds, awaiting override confirmation
-  const takeover = ref(null) // { match, lockedBy }
   // Close-event confirmation
   const closing = ref(false)
 
-  const swissMatches = computed(() => matches.value.filter(m => m.match_type === 'swiss'))
-
-  // Upcoming matches first, late throwers' matches next, completed at the
-  // bottom — so whoever is up next is always at the top of the list
-  const sortedSwissMatches = computed(() => {
-    const late = new Set(event.value?.late_players ?? [])
-    const rank = m => m.is_finished ? 2 : (late.has(m.player_1_id) || late.has(m.player_2_id) ? 1 : 0)
-    return [...swissMatches.value].sort((a, b) => rank(a) - rank(b) || a.sequence - b.sequence)
+  const {
+    event,
+    loading,
+    error,
+    busy,
+    newPlayer,
+    pairingStyle,
+    configMatches,
+    configRounds,
+    needsRegen,
+    showBracketPrompt,
+    bracketRounds,
+    takeover,
+    sortedSwissMatches,
+    lateMatch,
+    bracketMatches,
+    swissGenerated,
+    bracketGenerated,
+    standings,
+    eventType,
+    rules,
+    canChangeType,
+    load,
+    submitAddPlayer,
+    removePlayerFromEvent,
+    toggleLate,
+    saveConfigAndGenerate,
+    regenerateMatches,
+    generateScores,
+    confirmBracket,
+    changeMatchRounds,
+    selectMatch,
+    confirmTakeover,
+    changeEventType,
+    closeEvent,
+  } = useEventDetail(() => props.eventId, {
+    onLoaded(loaded) {
+      if (loaded.bracket_generated_at) activeTab.value = 'bracket'
+      playersCollapsed.value = !!loaded.swiss_generated_at
+    },
+    onMatchSelected: payload => emit('selectMatch', payload),
+    onClosed: () => emit('back'),
   })
-
-  const lateMatch = m => {
-    const late = new Set(event.value?.late_players ?? [])
-    return !m.is_finished && (late.has(m.player_1_id) || late.has(m.player_2_id))
-  }
-  const bracketMatches = computed(() => matches.value.filter(m => m.match_type === 'bracket'))
-  const swissGenerated = computed(() => !!event.value?.swiss_generated_at)
-  const bracketGenerated = computed(() => !!event.value?.bracket_generated_at)
-  const standings = computed(() => event.value?.swiss_standings ?? null)
-
-  function arenaLabel(arenaId) {
-    if (!arenaId) return ''
-    return venueArenas.value.find(a => a.id === arenaId)?.label ?? arenaId
-  }
-
-  function holderLabel(lockedBy) {
-    if (!lockedBy) return ''
-    return lockedBy === clientId ? 'this device' : `device ${lockedBy.slice(0, 8)}`
-  }
-
-  async function load() {
-    loading.value = true
-    error.value = ''
-    try {
-      event.value = await getEvent(props.eventId)
-      configMatches.value = event.value.swiss_matches_per_player
-      configRounds.value = event.value.swiss_rounds_per_match
-      if (bracketGenerated.value) activeTab.value = 'bracket'
-      playersCollapsed.value = swissGenerated.value
-    } catch (e) {
-      event.value = null
-      error.value = 'Failed to load event.'
-      loading.value = false
-      return
-    }
-    const [matchList, arenas] = await Promise.all([
-      getMatchesByEvent(props.eventId).catch(() => []),
-      getVenueArenas().catch(() => []),
-    ])
-    matches.value = matchList
-    venueArenas.value = arenas ?? []
-    loading.value = false
-  }
 
   onMounted(load)
 
-  function apiError(e, fallback) {
-    const detail = e?.response?.data?.detail
-    if (typeof detail === 'string') return detail
-    if (detail?.message) return detail.message
-    return fallback
-  }
-
-  async function run(action, fallback) {
-    error.value = ''
-    busy.value = true
-    try {
-      await action()
-    } catch (e) {
-      error.value = apiError(e, fallback)
-    } finally {
-      busy.value = false
-    }
-  }
-
-  async function submitAddPlayer() {
-    const name = newPlayer.value.trim()
-    if (!name) return
-    await run(async () => {
-      event.value = await addPlayer(props.eventId, name)
-      newPlayer.value = ''
-      // A new player needs matches — surface the generate controls again.
-      if (swissGenerated.value) needsRegen.value = true
-    }, 'Failed to add player.')
-  }
-
-  async function removePlayerFromEvent(player) {
-    await run(async () => {
-      event.value = await removePlayer(props.eventId, player)
-      // The schedule no longer matches the roster — offer to rebuild it.
-      if (swissGenerated.value) needsRegen.value = true
-    }, 'Failed to remove player.')
-  }
-
-  async function toggleLate(player) {
-    const late = !event.value.late_players.includes(player)
-    await run(async () => {
-      event.value = await setPlayerLate(props.eventId, player, late)
-    }, 'Failed to update player.')
-  }
-
-  async function saveConfigAndGenerate() {
-    await run(async () => {
-      event.value = await updateSwissConfig(
-        props.eventId, configMatches.value, configRounds.value, pairingStyle.value,
-      )
-      await generateSwissMatches(props.eventId)
-      needsRegen.value = false
-      await load()
-    }, 'Failed to generate matches.')
-  }
-
-  // Roster changed after generation: rebuild the schedule (before any scores) or
-  // append matches for late entrants (after). Config is left as-is.
-  async function regenerateMatches() {
-    await run(async () => {
-      await generateSwissMatches(props.eventId)
-      needsRegen.value = false
-      await load()
-    }, 'Failed to update matches.')
-  }
-
-  async function generateScores() {
-    await run(async () => {
-      const result = await generateSwissScores(props.eventId)
-      event.value = { ...event.value, swiss_standings: result }
-    }, 'Failed to generate swiss scores.')
-  }
-
-  async function confirmBracket() {
-    await run(async () => {
-      await generateBracket(props.eventId, bracketRounds.value)
-      showBracketPrompt.value = false
-      await load()
-    }, 'Failed to generate bracket.')
-  }
-
-  async function changeMatchRounds(match, rounds) {
-    await run(async () => {
-      await updateMatchRounds(match.match_id, rounds)
-      await load()
-    }, 'Failed to update rounds.')
-  }
-
-  function displayPlayer(id) {
-    if (!id) return 'TBD'
-    return id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id
-  }
-
-  function matchLabel(match) {
-    return `${displayPlayer(match.player_1_id)} vs ${displayPlayer(match.player_2_id)}`
-  }
-
-  function matchStatus(match) {
-    if (match.is_finished) return 'finished'
-    if (match.is_locked) return 'locked'
-    return 'open'
-  }
-
-  async function selectMatch(match) {
-    if (!match.player_1_id || !match.player_2_id) {
-      error.value = 'Both players must be decided before this match can start.'
-      return
-    }
-    // Finished matches open directly — scores stay editable after the fact
-    await acquire(match, false)
-  }
-
-  async function acquire(match, force) {
-    error.value = ''
-    busy.value = true
-    try {
-      const locked = await lockMatch(match.match_id, force)
-      emit('selectMatch', { match: locked, event: event.value, arenaLabel: arenaLabel(locked.arena_id) })
-    } catch (e) {
-      if (e?.response?.status === 423) {
-        takeover.value = { match, lockedBy: e.response.data?.detail?.locked_by ?? 'another coach' }
-      } else {
-        error.value = apiError(e, 'Failed to select match.')
-      }
-    } finally {
-      busy.value = false
-    }
-  }
-
-  async function confirmTakeover() {
-    const match = takeover.value.match
-    takeover.value = null
-    await acquire(match, true)
-  }
-
   async function confirmCloseEvent() {
     closing.value = false
-    await run(async () => {
-      event.value = await finishEvent(props.eventId)
-      emit('back')
-    }, 'Failed to close the event.')
+    await closeEvent()
   }
 </script>
 
@@ -261,6 +87,7 @@
       <h2 class="modal-title">
         {{ event?.event_name ?? 'Event' }}
         <ArenaChips :arenaIds="event?.arena_ids" />
+        <span v-if="event" class="type-badge" :class="eventType">{{ eventType === 'tournament' ? 'Tournament' : 'Standard' }}</span>
       </h2>
       <button class="modal-cancel back-btn" @click="emit('back')">Back</button>
     </div>
@@ -278,6 +105,28 @@
       </div>
 
       <template v-if="!bracketGenerated || activeTab === 'swiss'">
+      <!-- Event type: switchable until matches are generated (how a Checkfront
+           booking becomes a tournament). Afterwards only the header badge shows it. -->
+      <section v-if="canChangeType" class="section">
+        <h3 class="section-title">Event Type</h3>
+        <div class="style-toggle" role="group" aria-label="Event type">
+          <button
+            v-for="option in EVENT_TYPE_OPTIONS"
+            :key="option.value"
+            type="button"
+            class="style-btn"
+            :class="{ active: eventType === option.value }"
+            :aria-pressed="eventType === option.value"
+            :disabled="busy"
+            @click="changeEventType(option.value)"
+          >{{ option.label }}</button>
+        </div>
+        <p class="style-hint">
+          <template v-if="eventType === 'tournament'">Swiss by default, and generated matches are dealt onto the group's lanes. Locks once matches are generated.</template>
+          <template v-else>Everyday floor group. Switch to Tournament for a tournament day; this locks once matches are generated.</template>
+        </p>
+      </section>
+
       <!-- Players (collapsed once the swiss stage is generated, but still
            reachable so late arrivals can be marked) -->
       <section class="section">
@@ -333,26 +182,25 @@
         </template>
       </section>
 
-      <!-- Group-stage matches: round robin by default, Swiss if the group wants it -->
+      <!-- Group-stage matches: round robin by default for standard groups, Swiss by default for tournaments -->
       <section class="section">
         <h3 class="section-title">{{ pairingStyle === 'swiss' ? 'Swiss' : 'Round Robin' }}</h3>
         <template v-if="!swissGenerated">
           <div class="style-toggle" role="group" aria-label="Match style">
             <button
+              v-for="option in rules.styleOptions"
+              :key="option.value"
               type="button"
               class="style-btn"
-              :class="{ active: pairingStyle === 'round_robin' }"
-              @click="pairingStyle = 'round_robin'"
-            >Round robin</button>
-            <button
-              type="button"
-              class="style-btn"
-              :class="{ active: pairingStyle === 'swiss' }"
-              @click="pairingStyle = 'swiss'"
-            >Swiss</button>
+              :class="{ active: pairingStyle === option.value }"
+              :aria-pressed="pairingStyle === option.value"
+              @click="pairingStyle = option.value"
+            >{{ option.label }}</button>
           </div>
           <p class="style-hint">
-            <template v-if="pairingStyle === 'swiss'">Each thrower gets a set number of matches. Use this if the group wants a shorter Swiss night.</template>
+            <template v-if="rules.tournament && pairingStyle === 'swiss'">Each thrower gets a set number of matches, then we deal those games onto the group's lanes.</template>
+            <template v-else-if="rules.tournament">Everyone plays everyone once, dealt onto the group's lanes.</template>
+            <template v-else-if="pairingStyle === 'swiss'">Each thrower gets a set number of matches. Use this if the group wants a shorter Swiss night.</template>
             <template v-else>Everyone plays everyone once. The usual floor style.</template>
           </p>
           <div v-if="pairingStyle === 'swiss'" class="config-row">
@@ -392,7 +240,10 @@
               @keydown.enter.prevent="selectMatch(match)"
               @keydown.space.prevent="selectMatch(match)"
             >
-              <span class="match-name">{{ matchLabel(match) }}</span>
+              <span class="match-name">
+                {{ matchLabel(match) }}
+                <span v-if="match.arena_id" class="match-lane">{{ laneLabel(match.arena_id) }}</span>
+              </span>
               <span class="match-status">
                 <template v-if="match.is_finished">{{ match.winner_id ? `Won: ${match.winner_id}` : 'Finished' }}</template>
                 <template v-else-if="match.is_locked">In use by {{ holderLabel(match.locked_by) }}</template>
@@ -535,6 +386,14 @@
   line-height: 1.4;
 }
 
+.match-lane {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: bold;
+  color: #fbbf24;
+}
+
 .section-title {
   margin: 0;
   font-size: 0.85rem;
@@ -647,30 +506,6 @@
 }
 
 .add-player-input { flex: 1; }
-
-.style-toggle {
-  display: flex;
-  gap: 8px;
-}
-
-.style-btn {
-  flex: 1;
-  min-height: var(--touch-min);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-bg-secondary);
-  background: var(--color-bg-input);
-  color: var(--color-muted);
-  font: inherit;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-.style-btn.active {
-  border-color: var(--color-purple);
-  background: var(--color-purple-soft);
-  color: var(--color-purple);
-}
 
 .style-hint {
   margin: 0;

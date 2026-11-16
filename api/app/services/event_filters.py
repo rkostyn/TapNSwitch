@@ -1,12 +1,12 @@
-import os
 import re
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
+from app.settings import get_settings
+
 
 def venue_timezone() -> ZoneInfo:
-    tz_name = (os.getenv("VENUE_TIMEZONE") or os.getenv("CHECKFRONT_TIMEZONE") or "America/New_York").strip()
-    return ZoneInfo(tz_name)
+    return get_settings().venue_tz
 
 
 def day_bounds_utc(for_date: date, tz: ZoneInfo | None = None) -> tuple[datetime, datetime]:

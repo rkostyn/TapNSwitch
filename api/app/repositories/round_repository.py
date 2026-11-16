@@ -1,9 +1,11 @@
 import uuid
 from datetime import UTC, datetime
+
 from pymongo import ReturnDocument
-from app.db.mongo import MongoClient
-from app.models.round import Round, RoundCreate
+
+from app.db.mongo import DB_NAME, MongoClient
 from app.logger import get_logger
+from app.models.round import Round, RoundCreate
 
 logger = get_logger(__name__)
 
@@ -13,7 +15,7 @@ class RoundRepository:
         self.mongo_client = mongo_client
 
     async def _collection(self):
-        return await self.mongo_client.get_collection("axes", "rounds")
+        return await self.mongo_client.get_collection(DB_NAME, "rounds")
 
     async def create_round(self, round_create: RoundCreate) -> Round:
         collection = await self._collection()
@@ -66,6 +68,14 @@ class RoundRepository:
             return True
         logger.warning("Delete matched no documents for round_id: %s", round_id)
         return False
+
+    async def delete_rounds_by_match_ids(self, match_ids: list[str]) -> int:
+        if not match_ids:
+            return 0
+        collection = await self._collection()
+        result = await collection.delete_many({"match_id": {"$in": match_ids}})
+        logger.info("Deleted %d rounds for %d match(es)", result.deleted_count, len(match_ids))
+        return result.deleted_count
 
     async def unlock_round(self, round_id: str, user_id: str) -> Round | None:
         collection = await self._collection()

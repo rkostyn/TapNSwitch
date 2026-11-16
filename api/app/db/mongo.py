@@ -1,14 +1,19 @@
-import os
-
 from pymongo import AsyncMongoClient
+
 from app.logger import get_logger
+from app.settings import get_settings
 
 logger = get_logger(__name__)
+
+# The one database every collection lives in.
+DB_NAME = "axes"
 
 
 class MongoClient:
     def __init__(self):
-        self.mongo_uri = os.environ["MONGODB_URI"]
+        self.mongo_uri = get_settings().mongodb_uri
+        if not self.mongo_uri:
+            raise KeyError("MONGODB_URI")
         self.client = AsyncMongoClient(self.mongo_uri,
                                        maxIdleTimeMS=60000,
                                        maxPoolSize=50,

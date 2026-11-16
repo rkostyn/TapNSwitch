@@ -1,33 +1,37 @@
-<script setup>
+<script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
-  import { getEvents, createEvent } from '../api'
+  import { getEvents, createEvent, apiErrorMessage, type ApiEvent, type EventType } from '../api'
+  import { EVENT_TYPE_OPTIONS, eventTypeOf } from '../eventType'
+  import type { SelectMatchPayload } from '../match'
   import EventDetail from './EventDetail.vue'
   import ArenaChips from './ArenaChips.vue'
 
-  const props = defineProps(['initialEventId'])
-  const emit = defineEmits(['close', 'selectMatch'])
+  const props = defineProps<{ initialEventId?: string | null }>()
+  const emit = defineEmits<{
+    close: []
+    selectMatch: [payload: SelectMatchPayload]
+  }>()
 
-  // views: 'list' | 'create' | 'detail'
-  const view = ref(props.initialEventId ? 'detail' : 'list')
-  const selectedEventId = ref(props.initialEventId ?? null)
+  const view = ref<'list' | 'create' | 'detail'>(props.initialEventId ? 'detail' : 'list')
+  const selectedEventId = ref<string | null>(props.initialEventId ?? null)
 
-  function openEvent(event) {
+  function openEvent(event: ApiEvent) {
     selectedEventId.value = event.event_id
     view.value = 'detail'
   }
 
-  function onSelectMatch(payload) {
+  function onSelectMatch(payload: SelectMatchPayload) {
     emit('selectMatch', payload)
     emit('close')
   }
 
   // list state
-  const events = ref([])
+  const events = ref<ApiEvent[]>([])
   const listLoading = ref(true)
   const listError = ref('')
   const showClosed = ref(false)
   const eventSearch = ref('')
-  let searchTimer = null
+  let searchTimer: ReturnType<typeof setTimeout> | null = null
 
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 
@@ -43,6 +47,7 @@
       const q = eventSearch.value.trim()
       events.value = await getEvents(q ? { q } : undefined)
     } catch (e) {
+      console.error('Failed to load the events list', e)
       listError.value = 'Failed to load events.'
     } finally {
       listLoading.value = false
@@ -58,6 +63,7 @@
 
   // create state
   const eventName = ref('')
+  const eventType = ref<EventType>('standard')
   const players = ref(['', ''])
   const createLoading = ref(false)
   const createError = ref('')
@@ -66,12 +72,13 @@
     players.value.push('')
   }
 
-  function removePlayer(index) {
+  function removePlayer(index: number) {
     players.value.splice(index, 1)
   }
 
   function openCreate() {
     eventName.value = ''
+    eventType.value = 'standard'
     players.value = ['', '']
     createError.value = ''
     view.value = 'create'
@@ -87,11 +94,12 @@
 
     createLoading.value = true
     try {
-      await createEvent(name, playerList)
+      await createEvent(name, playerList, eventType.value)
       await loadEvents()
       view.value = 'list'
     } catch (e) {
-      createError.value = e?.response?.data?.detail ?? 'Failed to create event.'
+      console.error('Failed to create event', e)
+      createError.value = apiErrorMessage(e, 'Failed to create event.')
     } finally {
       createLoading.value = false
     }
@@ -105,7 +113,7 @@
 
         <!-- Event detail view -->
         <EventDetail
-          v-if="view === 'detail'"
+          v-if="view === 'detail' && selectedEventId"
           :eventId="selectedEventId"
           @back="view = 'list'; loadEvents()"
           @selectMatch="onSelectMatch"
@@ -150,6 +158,7 @@
                 <span class="event-name">
                   {{ event.event_name }}
                   <ArenaChips :arenaIds="event.arena_ids" />
+                  <span v-if="eventTypeOf(event) === 'tournament'" class="type-badge tournament">Tournament</span>
                   <span v-if="event.source === 'checkfront'" class="checkfront-badge">Checkfront</span>
                   <span v-if="event.is_finished" class="closed-badge">Closed</span>
                 </span>
@@ -182,6 +191,24 @@
             placeholder="Event name"
             :disabled="createLoading"
           />
+
+          <span id="new-event-type-label" class="modal-label">Event Type</span>
+          <div class="style-toggle" role="group" aria-labelledby="new-event-type-label">
+            <button
+              v-for="option in EVENT_TYPE_OPTIONS"
+              :key="option.value"
+              type="button"
+              class="style-btn"
+              :class="{ active: eventType === option.value }"
+              :aria-pressed="eventType === option.value"
+              :disabled="createLoading"
+              @click="eventType = option.value"
+            >{{ option.label }}</button>
+          </div>
+          <p class="type-hint">
+            <template v-if="eventType === 'tournament'">Swiss by default, with matches dealt onto the group's lanes.</template>
+            <template v-else>Everyday floor group, round robin by default.</template>
+          </p>
 
           <label class="modal-label">Players</label>
           <div class="player-list">
@@ -295,6 +322,13 @@
   align-self: flex-start;
   font-size: 0.75rem;
   padding: 4px 12px;
+}
+
+.type-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.4;
 }
 
 .add-player-btn {

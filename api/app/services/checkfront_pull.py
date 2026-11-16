@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass, field
 
 from app.integrations.checkfront.client import CheckfrontApiClient, CheckfrontApiError
@@ -7,6 +6,7 @@ from app.logger import get_logger
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
 from app.services.checkfront_events import sync_checkfront_booking
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -17,16 +17,6 @@ class CheckfrontPullResult:
     skipped: int = 0
     failed: int = 0
     events: list[Event] = field(default_factory=list)
-
-
-def _player_field_keys() -> list[str]:
-    raw = os.getenv("CHECKFRONT_PLAYER_FIELD_KEYS", "")
-    return [part.strip() for part in raw.split(",") if part.strip()]
-
-
-def _fetch_detail() -> bool:
-    raw = (os.getenv("CHECKFRONT_PULL_FETCH_DETAIL") or "true").strip().lower()
-    return raw not in {"0", "false", "no"}
 
 
 async def pull_checkfront_bookings(
@@ -40,8 +30,9 @@ async def pull_checkfront_bookings(
         raise CheckfrontApiError("Checkfront API credentials are not configured")
 
     result = CheckfrontPullResult()
-    player_field_keys = _player_field_keys()
-    fetch_detail = _fetch_detail()
+    settings = get_settings()
+    player_field_keys = settings.player_field_key_list
+    fetch_detail = settings.checkfront_pull_fetch_detail
 
     try:
         index_entries = await api.list_bookings(start_date=start_date)

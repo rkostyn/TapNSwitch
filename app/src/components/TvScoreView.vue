@@ -1,23 +1,33 @@
-<script setup>
+<script setup lang="ts">
   import { ref, onMounted, onUnmounted } from 'vue'
   import ScoreVisual from './ScoreVisual.vue'
-  import { getLaneBoard, getMatchesByEvent, getRoundsByMatch, getThrows, getTvSnapshot } from '../api'
+  import {
+    getLaneBoard,
+    getMatchesByEvent,
+    getRoundsByMatch,
+    getThrows,
+    getTvSnapshot,
+    type ApiMatch,
+    type ApiRound,
+    type ApiThrow,
+    type LaneGroup,
+  } from '../api'
   import { GHOST_DISPLAY_NAME, GHOST_PLAYER_ID } from '../config'
+  import type { TvRoundRow, TvSnapshot, TvThrow } from '../displaySync'
   import { arenaById, arenaLabel as formatArenas } from '../venue'
   import { nextUpMatch } from '../nextMatch'
 
-  const props = defineProps({
-    arenaId: { type: String, default: null },
-  })
+  const props = withDefaults(defineProps<{ arenaId?: string | null }>(), { arenaId: null })
 
-  const snapshot = ref(null)
+  const snapshot = ref<TvSnapshot | null>(null)
   const waitingNote = ref('')
-  let pollTimer = null
+  let pollTimer: ReturnType<typeof setInterval> | null = null
 
-  const nameOf = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
+  const nameOf = (id: string | null | undefined): string =>
+    id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : (id ?? '')
 
-  function throwTotal(scores) {
-    return (scores ?? []).reduce((sum, item) => sum + (item ? item.value : 0), 0)
+  function throwTotal(scores: TvThrow[]): number {
+    return scores.reduce((sum, item) => sum + item.value, 0)
   }
 
   async function loadArenaMatch() {
@@ -45,14 +55,21 @@
       ])
       snapshot.value = snapshotFromMatch(live, arena.group, rounds, throws, matches)
       waitingNote.value = ''
-    } catch {
+    } catch (e) {
+      console.error(`Failed to load the live match for arena ${arenaId}`, e)
       waitingNote.value = waitingNote.value || 'Could not load this lane'
     }
   }
 
-  function snapshotFromMatch(match, group, rounds, throws, matches) {
+  function snapshotFromMatch(
+    match: ApiMatch,
+    group: LaneGroup,
+    rounds: ApiRound[],
+    throws: ApiThrow[],
+    matches: ApiMatch[],
+  ): TvSnapshot {
     const byRoundId = Object.fromEntries(rounds.map(round => [round.round_id, round.sequence]))
-    const bySeq = {}
+    const bySeq: Record<number, { s1: TvThrow[]; s2: TvThrow[] }> = {}
     for (const item of throws) {
       const seq = byRoundId[item.round_id]
       if (!seq) continue
@@ -67,13 +84,13 @@
       totalRounds,
     )
     const live = bySeq[currentRound] ?? { s1: [], s2: [] }
-    const pad = arr => Array.from({ length: 5 }, (_, i) => arr[i] ?? null)
+    const pad = (arr: TvThrow[]): Array<TvThrow | null> => Array.from({ length: 5 }, (_, i) => arr[i] ?? null)
     const swapped = (currentRound - 1) % 2 === 1
     const p1 = nameOf(match.player_1_id)
     const p2 = nameOf(match.player_2_id)
     const leftScores = swapped ? pad(live.s2) : pad(live.s1)
     const rightScores = swapped ? pad(live.s1) : pad(live.s2)
-    const roundRows = Array.from({ length: totalRounds }, (_, i) => {
+    const roundRows: TvRoundRow[] = Array.from({ length: totalRounds }, (_, i) => {
       const seq = i + 1
       const row = bySeq[seq]
       if (!row) return { round: seq, t1: null, t2: null, status: 'pending' }
@@ -81,6 +98,8 @@
       const t2 = throwTotal(row.s2)
       return { round: seq, t1, t2, status: t1 > t2 ? 'p1' : t2 > t1 ? 'p2' : 'in-progress' }
     })
+    const finishedRounds = Object.values(bySeq).filter(row => row.s1.length >= 5 && row.s2.length >= 5).length
+    const upcoming = finishedRounds < 2 ? null : nextUpMatch(matches, match.match_id)
     return {
       player1Name: p1,
       player2Name: p2,
@@ -95,16 +114,9 @@
       arenaLabel: formatArenas(group.arena_ids),
       gameWinner: match.winner_id ? nameOf(match.winner_id) : null,
       showTiebreak: false,
-      nextMatch: (() => {
-        const finished = Object.values(bySeq).filter(row =>
-          (row.s1?.length ?? 0) >= 5 && (row.s2?.length ?? 0) >= 5
-        ).length
-        if (finished < 2) return null
-        const upcoming = nextUpMatch(matches, match.match_id)
-        return upcoming
-          ? { player1: nameOf(upcoming.player_1_id), player2: nameOf(upcoming.player_2_id) }
-          : null
-      })(),
+      nextMatch: upcoming
+        ? { player1: nameOf(upcoming.player_1_id), player2: nameOf(upcoming.player_2_id) }
+        : null,
       updatedAt: Date.now(),
     }
   }
@@ -118,14 +130,14 @@
 
   async function loadSnapshot() {
     try {
-      const live = await getTvSnapshot()
+      const live = await getTvSnapshot<TvSnapshot>()
       if (live) {
         snapshot.value = live
         waitingNote.value = ''
         return
       }
     } catch {
-      // Fall through to the lane poll when the TV has no snapshot yet
+      // Expected until the scoring iPad has published: fall through to the lane poll
     }
     if (props.arenaId) {
       await loadArenaMatch()
@@ -136,7 +148,7 @@
   }
 
   onMounted(() => {
-    loadSnapshot()
+    void loadSnapshot()
     pollTimer = setInterval(loadSnapshot, 1000)
   })
 

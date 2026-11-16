@@ -1,13 +1,33 @@
-<script setup>
+<script setup lang="ts">
   import { ref, computed, watch } from 'vue'
+  import type { ScorePayload } from '../scoring/types'
 
-  const props = defineProps(['playerName', 'mirrored', 'disabled', 'clutchAvailable'])
-  const emit = defineEmits(['score'])
+  const props = defineProps<{
+    playerName: string
+    mirrored?: boolean
+    disabled: boolean
+    clutchAvailable: boolean
+  }>()
+  const emit = defineEmits<{ score: [payload: ScorePayload] }>()
+
+  interface ScoreButton {
+    clutch?: false
+    text: string
+    value: number
+    color: string
+    drop?: boolean
+    disabled?: boolean
+  }
+  /** The Clutch / Cancel toggle, which keeps its place in both grids. */
+  interface ClutchButton {
+    clutch: true
+  }
+  type PadButton = ScoreButton | ClutchButton
 
   // IATF scoring: a regular axe scores 1, 3, 5, or 0 (hit the board outside
   // the target). A dropped axe also scores 0 but is recorded as a drop. The
   // Clutch circle switches the grid to clutch scoring.
-  const regularButtons = [
+  const regularButtons: PadButton[] = [
     { text: '3', value: 3, color: 'red' },
     { text: '1', value: 1, color: 'blue' },
     { text: '0', value: 0, color: 'orange' },
@@ -18,7 +38,7 @@
 
   // A called clutch scores 7 or 0 (a miss). The unused circles are greyed out;
   // Drop and Clutch (now Cancel) stay put so they're always where expected.
-  const clutchButtons = [
+  const clutchButtons: PadButton[] = [
     { text: '0', value: 0, color: 'orange' },
     { text: '7', value: 7, color: 'green' },
     { text: '-', value: 0, color: 'gray', disabled: true },
@@ -38,9 +58,10 @@
   const displayButtons = computed(() => {
     const src = activeButtons.value
     if (!props.mirrored) return src
-    const result = []
+    const result: PadButton[] = []
     for (let i = 0; i < src.length; i += 2) {
       const a = src[i], b = src[i + 1]
+      if (a === undefined) continue
       result.push(...(b !== undefined ? [b, a] : [a]))
     }
     return result
@@ -50,14 +71,14 @@
     clutchMode.value = !clutchMode.value
   }
 
-  function pick(item) {
+  function pick(item: ScoreButton) {
     if (item.disabled) return
     const clutch = clutchMode.value
     clutchMode.value = false
     emit('score', { points: item.value, clutch, drop: !!item.drop })
   }
 
-  function buttonLabel(item) {
+  function buttonLabel(item: ScoreButton) {
     if (item.disabled) return 'Unavailable'
     const mode = clutchMode.value ? 'clutch ' : ''
     return `${mode}Score ${item.text}`

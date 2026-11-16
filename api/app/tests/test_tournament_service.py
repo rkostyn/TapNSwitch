@@ -260,3 +260,55 @@ def test_match_winner_tiebreaker_round_settles_draw():
 
 def test_match_winner_single_player_bye():
     assert compute_match_winner("A", None, []) == "A"
+
+
+# ---------------------------------------------------------------------------
+# Event-type defaults
+# ---------------------------------------------------------------------------
+
+def test_group_pairings_follow_explicit_style():
+    from app.services.tournament import build_group_pairings
+    assert len(build_group_pairings("round_robin", ["A", "B", "C", "D"], [], 2)) == 6
+    assert len(build_group_pairings("swiss", ["A", "B", "C", "D"], [], 2)) == 4
+
+
+def test_group_pairings_reject_unknown_style():
+    import pytest
+
+    from app.services.tournament import build_group_pairings
+    with pytest.raises(ValueError):
+        build_group_pairings(None, ["A", "B", "C", "D"], [], 2)
+
+
+def _event(**fields):
+    from datetime import UTC, datetime
+
+    from app.models.event import Event
+    return Event(event_id="e", event_name="n", players=["A"], created_by="u", timestamp=datetime.now(UTC), **fields)
+
+
+def test_event_model_default_pairing_style_follows_its_type():
+    assert _event().event_type == "standard"
+    assert _event().pairing_style == "round_robin"
+    assert _event(event_type="tournament").pairing_style == "swiss"
+    assert _event(event_type="tournament", pairing_style="round_robin").pairing_style == "round_robin"
+
+
+def test_event_model_reads_legacy_document_as_standard():
+    # Stored before event types existed: no event_type, and no pairing_style.
+    assert _event(event_type=None).event_type == "standard"
+    assert _event(pairing_style=None).pairing_style == "round_robin"
+
+
+def test_new_event_document_pairing_style_follows_type():
+    from app.repositories.documents import new_event_document
+
+    def doc(**kw):
+        return new_event_document(
+            event_name="n", players=["A"], created_by="u", start_timestamp=None,
+            swiss_matches_per_player=2, swiss_rounds_per_match=2, suggested_arena_count=1, **kw,
+        )
+
+    assert (doc()["event_type"], doc()["pairing_style"]) == ("standard", "round_robin")
+    tournament = doc(event_type="tournament")
+    assert (tournament["event_type"], tournament["pairing_style"]) == ("tournament", "swiss")

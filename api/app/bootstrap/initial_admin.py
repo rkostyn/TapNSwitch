@@ -1,8 +1,7 @@
-import os
-
 from app.db.mongo import MongoClient
 from app.logger import get_logger
 from app.repositories.user_repository import UserRepository
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -18,15 +17,16 @@ async def ensure_initial_admin(mongo_client: MongoClient) -> None:
         logger.debug("Initial admin bootstrap skipped: an admin user already exists")
         return
 
-    password = (os.getenv("INITIAL_ADMIN_PASSWORD") or "").strip()
+    settings = get_settings()
+    password = settings.initial_admin_password
     if not password:
         logger.warning(
             "No admin users in database; set INITIAL_ADMIN_PASSWORD to create the first admin on startup"
         )
         return
 
-    username = (os.getenv("INITIAL_ADMIN_USERNAME") or "admin").strip() or "admin"
-    email = (os.getenv("INITIAL_ADMIN_EMAIL") or "admin@local.dev").strip() or "admin@local.dev"
+    username = settings.initial_admin_username
+    email = settings.initial_admin_email
 
     try:
         await repo.create_user_admin(username, email, password, is_admin=True)

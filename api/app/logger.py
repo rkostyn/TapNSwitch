@@ -1,8 +1,9 @@
 import logging
-import os
 from contextvars import ContextVar
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+from app.settings import get_settings
+
+LOG_LEVEL = get_settings().log_level
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 

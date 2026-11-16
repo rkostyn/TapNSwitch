@@ -1,0 +1,12 @@
+# Keep the image to the runtime app only.
+venv/
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+app/tests/
+requirements-dev.txt
+pyproject.toml
+README.md
+create_admin_user.py

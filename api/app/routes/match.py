@@ -1,14 +1,18 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
+
 from app.db.mongo import MongoClient
-from app.dependencies import get_mongo_client, get_current_user, rate_limit
-from app.repositories.match_repository import MatchRepository
-from app.repositories.event_repository import EventRepository
-from app.repositories.throw_repository import ThrowRepository
+from app.dependencies import get_current_user, get_mongo_client, rate_limit
+from app.logger import get_logger
 from app.models.match import Match, MatchCreate, MatchRoundsUpdate
 from app.models.throw import ThrowsGet
-from app.services.tournament import compute_match_winner
+from app.repositories.event_repository import EventRepository
+from app.repositories.match_repository import MatchRepository
+from app.repositories.throw_repository import ThrowRepository
+from app.services import cascade
+from app.services.event_stages import get_open_event
+from app.services.match_guards import get_match_or_404
 from app.services.match_results import update_match_winner
-from app.logger import get_logger
+from app.services.tournament import compute_match_winner
 
 logger = get_logger(__name__)
 
@@ -23,12 +27,7 @@ async def create_match(
 ):
     logger.info("Creating match for event %s", body.event_id)
     if body.event_id:
-        event_repo = EventRepository(mongo_client)
-        event = await event_repo.get_event(body.event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail="Event not found")
-        if event.is_finished:
-            raise HTTPException(status_code=423, detail="Event is finished")
+        event = await get_open_event(EventRepository(mongo_client), body.event_id)
         if event.is_locked and event.locked_by != current_user:
             raise HTTPException(status_code=423, detail="Event is locked by another user")
     repo = MatchRepository(mongo_client)
@@ -64,8 +63,7 @@ async def delete_match(
     current_user: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
 ):
-    repo = MatchRepository(mongo_client)
-    if not await repo.delete_match(match_id):
+    if not await cascade.delete_match(mongo_client, match_id):
         raise HTTPException(status_code=404, detail="Match not found")
 
 
@@ -76,9 +74,7 @@ async def finish_match(
     mongo_client: MongoClient = Depends(get_mongo_client),
 ):
     repo = MatchRepository(mongo_client)
-    existing = await repo.get_match(match_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Match not found")
+    existing = await get_match_or_404(repo, match_id)
     if existing.is_finished:
         raise HTTPException(status_code=423, detail="Match is already finished")
 
@@ -102,9 +98,7 @@ async def reopen_match(
     mongo_client: MongoClient = Depends(get_mongo_client),
 ):
     repo = MatchRepository(mongo_client)
-    existing = await repo.get_match(match_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Match not found")
+    existing = await get_match_or_404(repo, match_id)
     if not existing.is_finished:
         raise HTTPException(status_code=409, detail="Match is not finished")
     result = await repo.reopen_match(match_id)
@@ -121,9 +115,7 @@ async def update_match_rounds(
     mongo_client: MongoClient = Depends(get_mongo_client),
 ):
     repo = MatchRepository(mongo_client)
-    existing = await repo.get_match(match_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Match not found")
+    existing = await get_match_or_404(repo, match_id)
     if existing.is_finished:
         raise HTTPException(status_code=423, detail="Match is finished")
     return await repo.update_rounds_per_match(match_id, body.rounds_per_match)
@@ -141,9 +133,7 @@ async def lock_match(
     # login still conflict; username is the fallback for clients without an id.
     holder = x_client_id or current_user
     repo = MatchRepository(mongo_client)
-    existing = await repo.get_match(match_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Match not found")
+    existing = await get_match_or_404(repo, match_id)
     if existing.is_locked and existing.locked_by == holder:
         return existing
     if force:
@@ -168,9 +158,7 @@ async def unlock_match(
 ):
     holder = x_client_id or current_user
     repo = MatchRepository(mongo_client)
-    existing = await repo.get_match(match_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Match not found")
+    await get_match_or_404(repo, match_id)
     result = await repo.unlock_match(match_id, holder)
     if not result:
         logger.warning("Unlock attempt failed for match %s — not locked by caller", match_id)

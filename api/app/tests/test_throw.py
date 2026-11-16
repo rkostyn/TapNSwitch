@@ -2,13 +2,12 @@
 Unit tests for ThrowRepository against the in-memory FakeMongoClient.
 """
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import pytest
 
-from app.models.throw import ThrowGet, ThrowSubmit, ThrowsGet
+from app.models.throw import ThrowGet, ThrowsGet, ThrowSubmit
 from app.repositories.throw_repository import ThrowRepository
-from app.tests.fakes import FakeMongoClient, FakeRedisClient
+from app.tests.fakes import FakeMongoClient
 
 throw_submit = ThrowSubmit(
     timestamp=datetime.now(UTC),
@@ -31,9 +30,7 @@ def fake_mongo():
 
 @pytest.fixture
 def repo(fake_mongo):
-    # ThrowRepository creates a RedisClient internally; patch it out
-    with patch("app.repositories.throw_repository.RedisClient", return_value=FakeRedisClient()):
-        return ThrowRepository(fake_mongo)
+    return ThrowRepository(fake_mongo)
 
 
 async def test_throw_submit(repo):

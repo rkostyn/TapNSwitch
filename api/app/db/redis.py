@@ -1,13 +1,19 @@
-import os
 import json
+import secrets
+
 from redis.asyncio import Redis
+
 from app.logger import get_logger
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
 class RedisClient:
     def __init__(self):
-        self.redis = Redis.from_url(os.environ["REDIS_URI"])
+        redis_uri = get_settings().redis_uri
+        if not redis_uri:
+            raise KeyError("REDIS_URI")
+        self.redis = Redis.from_url(redis_uri)
 
     async def ping(self) -> bool:
         try:
@@ -41,6 +47,21 @@ class RedisClient:
             "return c"
         )
         return await self.redis.eval(script, 1, key, window)
+
+    async def acquire_lock(self, key: str, ttl_seconds: int) -> str | None:
+        """Take a lock (SET NX EX). Returns a release token, or None if held."""
+        token = secrets.token_hex(16)
+        if await self.redis.set(key, token, nx=True, ex=ttl_seconds):
+            return token
+        return None
+
+    async def release_lock(self, key: str, token: str) -> None:
+        """Release a lock only if this token still holds it (Lua compare-and-delete)."""
+        script = (
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+            "return redis.call('DEL', KEYS[1]) end return 0"
+        )
+        await self.redis.eval(script, 1, key, token)
 
     async def delete(self, key: str):
         await self.redis.delete(key)

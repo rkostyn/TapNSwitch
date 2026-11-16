@@ -1,5 +1,7 @@
 import pytest
 
+from app.db.mongo import DB_NAME
+
 EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 ROUND_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
@@ -62,11 +64,12 @@ def test_submit_throw_to_finished_match_allowed(client, auth_token):
 def test_finished_match_winner_recomputed_on_edit(client, auth_token):
     _, match_id = make_match(client, auth_token)
     round_id = make_round(client, auth_token, match_id)
-    submit = lambda player, points: client.post(
-        "/throw/submit",
-        json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
-        headers=auth_headers(auth_token),
-    )
+    def submit(player, points):
+        return client.post(
+            "/throw/submit",
+            json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
+            headers=auth_headers(auth_token),
+        )
     submit("player_1", 5)
     submit("player_2", 1)
     client.post(f"/match/{match_id}/finish", headers=auth_headers(auth_token))
@@ -80,11 +83,12 @@ def test_finished_match_winner_recomputed_on_edit(client, auth_token):
 def test_delete_throw_recomputes_finished_winner(client, auth_token):
     _, match_id = make_match(client, auth_token)
     round_id = make_round(client, auth_token, match_id)
-    submit = lambda player, points: client.post(
-        "/throw/submit",
-        json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
-        headers=auth_headers(auth_token),
-    )
+    def submit(player, points):
+        return client.post(
+            "/throw/submit",
+            json={**make_throw_payload(match_id, round_id), "player_id": player, "points": points},
+            headers=auth_headers(auth_token),
+        )
     winning_throw = submit("player_1", 5).json()["throw_id"]
     submit("player_1", 3)
     submit("player_2", 4)
@@ -108,7 +112,7 @@ async def test_submit_throw_to_match_locked_by_other(client, auth_token, mongo_c
     _, match_id = make_match(client, auth_token)
     round_id = make_round(client, auth_token, match_id)
     client.post(f"/match/{match_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "matches")
+    collection = await mongo_client.get_collection(DB_NAME, "matches")
     await collection.update_one({"match_id": match_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post("/throw/submit", json=make_throw_payload(match_id, round_id), headers=auth_headers(auth_token))
     assert response.status_code == 423

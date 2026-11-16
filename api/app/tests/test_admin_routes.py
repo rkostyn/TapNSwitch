@@ -11,6 +11,9 @@ import json
 import time
 
 import bcrypt
+import pytest
+
+from app.db.mongo import DB_NAME
 
 # Import the shared fake instances seeded in conftest so we can manipulate
 # them at module level (before any fixtures run).
@@ -27,7 +30,7 @@ _LOGOUT_TOKEN = "test-admin-logout-token-fixed"
 
 
 def _seed_admin():
-    users = _fake_mongo._get_or_create("axes", "users")
+    users = _fake_mongo._get_or_create(DB_NAME, "users")
     # Avoid double-seeding across test re-imports
     if any(u.get("user_name") == _ADMIN_USERNAME for u in users._docs):
         return
@@ -591,3 +594,37 @@ def test_admin_create_player_json_duplicate(client):
     )
     assert response.status_code == 400
     assert "detail" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# Auth dependencies and body validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path", ["event", "match", "round", "throw", "player"])
+def test_admin_create_json_unauthenticated_beats_validation(client, path):
+    response = client.post(f"/admin/create/{path}", json={"nonsense": True})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+@pytest.mark.parametrize("path", ["event", "match", "round", "throw", "player"])
+def test_admin_create_json_invalid_body_is_422(client, path):
+    response = client.post(f"/admin/create/{path}", json={"nonsense": True}, cookies=admin_cookies())
+    assert response.status_code == 422
+
+
+def test_admin_create_player_json_success_and_duplicate(client):
+    body = {"player_name": "admin-json-player"}
+    first = client.post("/admin/create/player", json=body, cookies=admin_cookies())
+    assert first.status_code == 200 and "player_id" in first.json()
+    second = client.post("/admin/create/player", json=body, cookies=admin_cookies())
+    assert second.status_code == 400
+
+
+def test_admin_html_redirects_are_independent_responses(client):
+    first = client.get("/admin/", follow_redirects=False)
+    second = client.get("/admin/users/create", follow_redirects=False)
+    for response in (first, second):
+        assert response.status_code == 302
+        assert response.headers["location"] == "/admin/login"
+        assert "set-cookie" not in response.headers

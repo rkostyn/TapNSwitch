@@ -1,16 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db.mongo import MongoClient
-from app.dependencies import get_current_user, get_mongo_client
+from app.db.redis import RedisClient
+from app.dependencies import get_current_user, get_mongo_client, get_redis_client, rate_limit
 from app.logger import get_logger
 from app.models.event import Event
-from app.models.lane import ArenaAssign, LaneBoard
+from app.models.lane import ArenaAssign, LaneBoard, Venue
 from app.repositories.event_repository import EventRepository
-from app.services.lanes import ArenaOccupiedError, assign_event_arenas, build_lane_board
+from app.services.lanes import ArenaOccupiedError, assign_event_arenas, build_lane_board, venue_layout
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["Lanes"])
+
+
+@router.get("/venue", response_model=Venue, dependencies=[Depends(rate_limit(60))])
+async def get_venue():
+    """The venue's arenas and lanes. Public: the layout is static, not live data."""
+    return venue_layout()
 
 
 @router.get("/lanes", response_model=LaneBoard)
@@ -28,6 +35,7 @@ async def set_event_arenas(
     body: ArenaAssign,
     _: str = Depends(get_current_user),
     mongo_client: MongoClient = Depends(get_mongo_client),
+    redis_client: RedisClient = Depends(get_redis_client),
 ):
     repo = EventRepository(mongo_client)
     event = await repo.get_event(event_id)
@@ -36,7 +44,7 @@ async def set_event_arenas(
     if event.is_finished:
         raise HTTPException(status_code=423, detail="Event is finished")
     try:
-        updated = await assign_event_arenas(repo, event, body.arena_ids)
+        updated = await assign_event_arenas(repo, redis_client, event, body.arena_ids)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ArenaOccupiedError as exc:

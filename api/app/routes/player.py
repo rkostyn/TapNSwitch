@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+
 from app.db.mongo import MongoClient
-from app.dependencies import get_mongo_client, get_current_user, rate_limit
-from app.repositories.player_repository import PlayerRepository
-from app.models.player import Player, PlayerCreate
+from app.dependencies import get_current_user, get_mongo_client, rate_limit
 from app.logger import get_logger
+from app.models.player import Player, PlayerCreate
+from app.repositories.player_repository import PlayerRepository
 
 logger = get_logger(__name__)
 
@@ -21,7 +22,7 @@ async def create_player(
     try:
         return await repo.create_player(body)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("", response_model=list[Player], dependencies=[Depends(rate_limit(60))])

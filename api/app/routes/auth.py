@@ -1,17 +1,25 @@
 
-from fastapi import Body, APIRouter, Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
-from app.db.mongo import MongoClient
 import base64
 import binascii
 import hashlib
 
-from app.dependencies import bearer_scheme, create_access_token, get_current_user, get_mongo_client, get_redis_client, rate_limit
+from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.db.mongo import DB_NAME, MongoClient
 from app.db.redis import RedisClient
-from app.repositories.user_repository import UserRepository
-from app.models.user import User, UserCreate
-from app.models.auth import RegisterRequest, RegisterResponse, LoginRequest, TokenResponse
+from app.dependencies import (
+    bearer_scheme,
+    create_access_token,
+    get_current_user,
+    get_mongo_client,
+    get_redis_client,
+    rate_limit,
+)
 from app.logger import get_logger
+from app.models.auth import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
+from app.models.user import User, UserCreate
+from app.repositories.user_repository import UserRepository
 
 logger = get_logger(__name__)
 
@@ -27,7 +35,7 @@ TOKEN_TTL_SECONDS = 604800
 @router.post("/register", response_model=RegisterResponse, dependencies=[Depends(rate_limit(5, 60))])
 async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient = Depends(get_mongo_client)):
     logger.info("Register attempt")
-    db = await mongo_client.get_database('axes')
+    db = await mongo_client.get_database(DB_NAME)
     # Check if registration token is valid
     token_doc = await db['registration_tokens'].find_one({"token": body.registration_token})
     if not token_doc:
@@ -52,7 +60,7 @@ async def register(body: RegisterRequest = Body(...), mongo_client: MongoClient 
         )
     except ValueError as e:
         logger.warning("Registration failed: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/login", response_model=TokenResponse, dependencies=[Depends(rate_limit(10, 60))])
@@ -64,7 +72,7 @@ async def login(body: LoginRequest, mongo_client: MongoClient = Depends(get_mong
         decoded = base64.b64decode(body.credentials).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError):
         logger.warning("Login attempt with malformed base64 credentials")
-        raise HTTPException(status_code=400, detail="Invalid base64 credentials")
+        raise HTTPException(status_code=400, detail="Invalid base64 credentials") from None
 
     if ":" not in decoded:
         logger.warning("Login attempt with missing credentials separator")
