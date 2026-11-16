@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from app.bootstrap.initial_admin import ensure_initial_admin
+from app.db.mongo import DB_NAME
 from app.repositories.user_repository import UserRepository
 from app.tests.fakes import FakeMongoClient
 
@@ -19,7 +20,7 @@ async def test_ensure_initial_admin_skips_without_password():
     env = {k: v for k, v in os.environ.items() if k not in removes}
     with patch.dict(os.environ, env, clear=True):
         await ensure_initial_admin(mongo)
-    users = mongo._get_or_create("axes", "users")
+    users = mongo._get_or_create(DB_NAME, "users")
     assert users._docs == []
 
 
@@ -35,7 +36,7 @@ async def test_ensure_initial_admin_creates_once():
         await ensure_initial_admin(mongo)
         await ensure_initial_admin(mongo)
 
-    users = mongo._get_or_create("axes", "users")
+    users = mongo._get_or_create(DB_NAME, "users")
     assert len(users._docs) == 1
     assert users._docs[0]["user_name"] == "firstadmin"
     assert users._docs[0]["is_admin"] is True
@@ -57,6 +58,6 @@ async def test_ensure_initial_admin_skips_when_admin_exists():
     ):
         await ensure_initial_admin(mongo)
 
-    users = mongo._get_or_create("axes", "users")
+    users = mongo._get_or_create(DB_NAME, "users")
     assert len(users._docs) == 1
     assert users._docs[0]["user_name"] == "existing"

@@ -1,8 +1,8 @@
 """Pure tournament logic: swiss pairing, standings and single-elimination brackets."""
-import uuid
 from datetime import UTC, datetime
 
 from app.logger import get_logger
+from app.repositories.documents import new_match_document
 
 logger = get_logger(__name__)
 
@@ -54,6 +54,10 @@ def build_group_pairings(
     late_players: list[str],
     matches_per_player: int,
 ) -> list[tuple[str, str]]:
+    """The group-stage schedule for ``style``. The style is the event's own
+    (``Event`` fills in its type's default), so an unknown one is a bug."""
+    if style not in ("swiss", "round_robin"):
+        raise ValueError(f"Unknown pairing style {style!r}")
     if style == "swiss":
         return build_swiss_pairings(players, late_players, matches_per_player)
     return build_round_robin_pairings(players, late_players)
@@ -232,24 +236,17 @@ def build_bracket_matches(
     per_round = size // 2
     for rnd in range(1, total_rounds + 1):
         for slot in range(per_round):
-            doc = {
-                "match_id": str(uuid.uuid4()),
-                "event_id": event_id,
-                "player_1_id": None,
-                "player_2_id": None,
-                "sequence": seq,
-                "match_type": "bracket",
-                "rounds_per_match": rounds_per_match,
-                "bracket_round": rnd,
-                "bracket_slot": slot,
-                "winner_id": None,
-                "timestamp": now,
-                "is_locked": False,
-                "locked_by": None,
-                "locked_at": None,
-                "is_finished": False,
-                "finished_at": None,
-            }
+            doc = new_match_document(
+                event_id=event_id,
+                player_1_id=None,
+                player_2_id=None,
+                sequence=seq,
+                match_type="bracket",
+                rounds_per_match=rounds_per_match,
+                bracket_round=rnd,
+                bracket_slot=slot,
+                now=now,
+            )
             matches.append(doc)
             index[(rnd, slot)] = doc
             seq += 1

@@ -1,12 +1,13 @@
-from fastapi import Body, APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
+
 from app.db.mongo import MongoClient
-from app.dependencies import get_mongo_client, get_current_user, rate_limit
-from app.repositories.throw_repository import ThrowRepository
-from app.repositories.match_repository import MatchRepository
-from app.repositories.event_repository import EventRepository
-from app.models.throw import Throw, ThrowGet, ThrowSubmit, ThrowsGet
-from app.services.match_results import update_match_winner
+from app.dependencies import get_current_user, get_mongo_client, rate_limit
 from app.logger import get_logger
+from app.models.throw import Throw, ThrowGet, ThrowsGet, ThrowSubmit
+from app.repositories.match_repository import MatchRepository
+from app.repositories.throw_repository import ThrowRepository
+from app.services.match_guards import load_scorable_match
+from app.services.match_results import update_match_winner
 
 logger = get_logger(__name__)
 
@@ -24,19 +25,9 @@ async def submit_throw(
 ):
     logger.info("Throw submission for player: %s", body.player_id)
     holder = x_client_id or current_user
-    match_repo = MatchRepository(mongo_client)
-    match = await match_repo.get_match(body.match_id)
-    if not match:
-        raise HTTPException(status_code=404, detail="Match not found")
     # Finished matches stay editable so coaches can correct scoring afterwards;
     # only a finished event freezes them for good.
-    if match.is_locked and match.locked_by != holder:
-        raise HTTPException(status_code=423, detail="Match is locked by another device")
-    if match.event_id:
-        event_repo = EventRepository(mongo_client)
-        event = await event_repo.get_event(match.event_id)
-        if event and event.is_finished:
-            raise HTTPException(status_code=423, detail="Event is finished")
+    match = await load_scorable_match(mongo_client, body.match_id, holder, allow_finished=True)
     body.throw_id = None
     body.timestamp = None
     r = ThrowRepository(mongo_client)

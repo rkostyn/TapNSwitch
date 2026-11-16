@@ -1,10 +1,10 @@
-import os
 from typing import Any
 
 import httpx
 
 from app.integrations.checkfront.parser import iter_checkfront_index_entries
 from app.logger import get_logger
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -30,17 +30,15 @@ class CheckfrontApiClient:
 
     @classmethod
     def from_env(cls) -> "CheckfrontApiClient | None":
-        base_url = (os.getenv("CHECKFRONT_API_URL") or "").strip().rstrip("/")
-        api_key = (os.getenv("CHECKFRONT_API_KEY") or "").strip()
-        api_secret = (os.getenv("CHECKFRONT_API_SECRET") or "").strip()
-        if not base_url or not api_key or not api_secret:
+        settings = get_settings()
+        base_url = settings.checkfront_api_url.rstrip("/")
+        if not base_url or not settings.checkfront_api_key or not settings.checkfront_api_secret:
             return None
-        client_ip = (os.getenv("CHECKFRONT_API_CLIENT_IP") or "127.0.0.1").strip()
         return cls(
             base_url=base_url,
-            api_key=api_key,
-            api_secret=api_secret,
-            client_ip=client_ip,
+            api_key=settings.checkfront_api_key,
+            api_secret=settings.checkfront_api_secret,
+            client_ip=settings.checkfront_api_client_ip,
         )
 
     def _headers(self) -> dict[str, str]:

@@ -1,24 +1,18 @@
-import os
-
 from app.integrations.checkfront.models import CheckfrontBooking
 from app.models.event import Event, EventCreate
 from app.repositories.event_repository import EventRepository
+from app.settings import get_settings
 from app.venue import guess_arena_ids, suggested_arena_count
 
 CHECKFRONT_CREATED_BY = "checkfront"
-DEFAULT_ACCEPT_STATUSES = {"PAID", "CONF", "PEND", "HOLD", "WAIT"}
 
 
 def _configured_statuses() -> set[str]:
-    raw = os.getenv("CHECKFRONT_ACCEPT_STATUSES", "")
-    if not raw.strip():
-        return DEFAULT_ACCEPT_STATUSES
-    return {part.strip().upper() for part in raw.split(",") if part.strip()}
+    return get_settings().accept_status_set
 
 
 def _group_mode() -> str:
-    mode = (os.getenv("CHECKFRONT_GROUP_MODE") or "session").strip().lower()
-    return mode if mode in {"booking", "session"} else "session"
+    return get_settings().checkfront_group_mode
 
 
 def _lane_hints(booking: CheckfrontBooking, players: list[str]) -> dict:

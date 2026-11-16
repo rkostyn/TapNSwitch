@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("MONGODB_URI", "mongodb://fake-host:27017")
 os.environ.setdefault("REDIS_URI", "redis://fake-host:6379/0")
 
+from app.db.mongo import DB_NAME
 from app.dependencies import get_mongo_client, get_redis_client  # noqa: E402
 from app.main import app  # noqa: E402
 from app.tests.fakes import FakeMongoClient, FakeRedisClient  # noqa: E402
@@ -30,7 +31,7 @@ app.dependency_overrides[get_redis_client] = lambda: _fake_redis
 def _seed_test_data():
     """Synchronously pre-populate the in-memory stores with test fixtures."""
     password_hash = bcrypt.hashpw(b"testpassword", bcrypt.gensalt()).decode()
-    users = _fake_mongo._get_or_create("axes", "users")
+    users = _fake_mongo._get_or_create(DB_NAME, "users")
     users._docs.append({
         "user_id": "test-user-id-fixed",
         "user_name": "testuser",
@@ -39,7 +40,7 @@ def _seed_test_data():
         "created_at": datetime.now(UTC),
         "is_admin": False,
     })
-    tokens = _fake_mongo._get_or_create("axes", "registration_tokens")
+    tokens = _fake_mongo._get_or_create(DB_NAME, "registration_tokens")
     # One token for test_register to consume
     tokens._docs.append({"token": "test-reg-token"})
 

@@ -1,9 +1,11 @@
-import uuid
 from datetime import UTC, datetime
+
 from pymongo import ReturnDocument
-from app.db.mongo import MongoClient
-from app.models.match import Match, MatchCreate
+
+from app.db.mongo import DB_NAME, MongoClient
 from app.logger import get_logger
+from app.models.match import Match, MatchCreate
+from app.repositories.documents import new_match_document
 
 logger = get_logger(__name__)
 
@@ -13,31 +15,20 @@ class MatchRepository:
         self.mongo_client = mongo_client
 
     async def _collection(self):
-        return await self.mongo_client.get_collection("axes", "matches")
+        return await self.mongo_client.get_collection(DB_NAME, "matches")
 
     async def create_match(self, match_create: MatchCreate) -> Match:
         collection = await self._collection()
-        match_id = str(uuid.uuid4())
-        doc = {
-            "match_id": match_id,
-            "event_id": match_create.event_id,
-            "player_1_id": match_create.player_1_id,
-            "player_2_id": match_create.player_2_id,
-            "sequence": match_create.sequence,
-            "match_type": match_create.match_type,
-            "rounds_per_match": match_create.rounds_per_match,
-            "bracket_round": None,
-            "bracket_slot": None,
-            "winner_id": None,
-            "timestamp": datetime.now(UTC),
-            "is_locked": False,
-            "locked_by": None,
-            "locked_at": None,
-            "is_finished": False,
-            "finished_at": None,
-        }
+        doc = new_match_document(
+            event_id=match_create.event_id,
+            player_1_id=match_create.player_1_id,
+            player_2_id=match_create.player_2_id,
+            sequence=match_create.sequence,
+            match_type=match_create.match_type,
+            rounds_per_match=match_create.rounds_per_match,
+        )
         await collection.insert_one(doc)
-        logger.info("Match created: %s (event=%s seq=%d)", match_id, match_create.event_id, match_create.sequence)
+        logger.info("Match created: %s (event=%s seq=%d)", doc["match_id"], match_create.event_id, match_create.sequence)
         return Match(**doc)
 
     async def get_match(self, match_id: str) -> Match | None:
@@ -55,6 +46,11 @@ class MatchRepository:
             query["match_type"] = match_type
         cursor = collection.find(query, {"_id": 0}).sort("sequence", 1)
         return [Match(**doc) async for doc in cursor]
+
+    async def get_match_ids_by_event(self, event_id: str) -> list[str]:
+        collection = await self._collection()
+        cursor = collection.find({"event_id": event_id}, {"_id": 0, "match_id": 1})
+        return [doc["match_id"] async for doc in cursor]
 
     async def insert_matches(self, docs: list[dict]) -> list[Match]:
         collection = await self._collection()
@@ -94,6 +90,18 @@ class MatchRepository:
             return True
         logger.warning("Delete matched no documents for match_id: %s", match_id)
         return False
+
+    async def delete_matches(self, match_ids: list[str]) -> int:
+        if not match_ids:
+            return 0
+        collection = await self._collection()
+        result = await collection.delete_many({"match_id": {"$in": list(match_ids)}})
+        logger.info("Deleted %d matches by id", result.deleted_count)
+        return result.deleted_count
+
+    async def event_has_matches(self, event_id: str) -> bool:
+        collection = await self._collection()
+        return await collection.find_one({"event_id": event_id}, {"_id": 0, "match_id": 1}) is not None
 
     async def delete_matches_by_event(self, event_id: str, match_type: str | None = None) -> int:
         collection = await self._collection()

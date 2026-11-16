@@ -1,9 +1,11 @@
 import uuid
 from datetime import UTC, datetime
+
 from pymongo.errors import DuplicateKeyError
-from app.db.mongo import MongoClient
-from app.models.player import Player, PlayerCreate
+
+from app.db.mongo import DB_NAME, MongoClient
 from app.logger import get_logger
+from app.models.player import Player, PlayerCreate
 
 logger = get_logger(__name__)
 
@@ -13,7 +15,7 @@ class PlayerRepository:
         self.mongo_client = mongo_client
 
     async def _collection(self):
-        return await self.mongo_client.get_collection("axes", "players")
+        return await self.mongo_client.get_collection(DB_NAME, "players")
 
     async def create_player(self, player_create: PlayerCreate) -> Player:
         collection = await self._collection()
@@ -31,9 +33,9 @@ class PlayerRepository:
         }
         try:
             await collection.insert_one(doc)
-        except DuplicateKeyError:
+        except DuplicateKeyError as e:
             logger.warning("Player creation failed — duplicate key conflict")
-            raise ValueError("A player with that name already exists")
+            raise ValueError("A player with that name already exists") from e
         logger.info("Player created: %s (name=%s)", player_id, player_create.player_name)
         return Player(**doc)
 

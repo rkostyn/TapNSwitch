@@ -1,41 +1,72 @@
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import base64
 import binascii
+import functools
 import hashlib
 import secrets
 import string
 from datetime import datetime
 
-from app.dependencies import create_access_token, get_mongo_client, get_redis_client
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+from app.db.mongo import DB_NAME
 from app.db.redis import RedisClient
-from app.repositories.event_repository import EventRepository
-from app.repositories.match_repository import MatchRepository
-from app.repositories.round_repository import RoundRepository
-from app.repositories.throw_repository import ThrowRepository
-from app.repositories.player_repository import PlayerRepository
-from app.repositories.user_repository import UserRepository
+from app.dependencies import create_access_token, get_mongo_client, get_redis_client
+from app.logger import get_logger
 from app.models.event import EventCreate
 from app.models.match import MatchCreate
+from app.models.player import PlayerCreate
 from app.models.round import RoundCreate
 from app.models.throw import ThrowSubmit
-from app.models.player import PlayerCreate
-from app.logger import get_logger
+from app.models.user import UserDelete
+from app.repositories.event_repository import EventRepository
+from app.repositories.match_repository import MatchRepository
+from app.repositories.player_repository import PlayerRepository
+from app.repositories.round_repository import RoundRepository
+from app.repositories.throw_repository import ThrowRepository
+from app.repositories.user_repository import UserRepository
+from app.services import cascade
 from app.templates import templates
 
 logger = get_logger(__name__)
 
 _COOKIE_NAME = "admin_session"
-_LOGIN_REDIRECT = RedirectResponse(url="/admin/login", status_code=302)
-
-
 _ADMIN_TOKEN_PREFIX = "auth:admin_token"
+
 
 async def _get_admin_user(request: Request, redis_client: RedisClient) -> str | None:
     token = request.cookies.get(_COOKIE_NAME)
     if not token:
         return None
     return await redis_client.get(f"{_ADMIN_TOKEN_PREFIX}:{hashlib.sha256(token.encode()).hexdigest()}")
+
+
+class AdminLoginRequired(Exception):
+    """Raised by ``require_admin_page``; answered with a redirect to the login page."""
+
+
+async def admin_login_redirect(request: Request, exc: AdminLoginRequired) -> RedirectResponse:
+    return RedirectResponse(url="/admin/login", status_code=302)
+
+
+async def require_admin_page(
+    request: Request, redis_client: RedisClient = Depends(get_redis_client)
+) -> str:
+    """Admin user for HTML pages; unauthenticated visitors go to the login page."""
+    user = await _get_admin_user(request, redis_client)
+    if not user:
+        raise AdminLoginRequired()
+    return user
+
+
+async def require_admin_api(
+    request: Request, redis_client: RedisClient = Depends(get_redis_client)
+) -> str:
+    """Admin user for JSON endpoints; unauthenticated callers get 401."""
+    user = await _get_admin_user(request, redis_client)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
 
 
 # Login routes — no auth dependency
@@ -110,9 +141,7 @@ async def get_logout(request: Request, redis_client: RedisClient = Depends(get_r
 
 
 @router.get("/")
-async def get_admin(request: Request, redis_client: RedisClient = Depends(get_redis_client)):
-    if not await _get_admin_user(request, redis_client):
-        return _LOGIN_REDIRECT
+async def get_admin(request: Request, _: str = Depends(require_admin_page)):
     return templates.TemplateResponse(request=request, name="admin/index.html")
 
 
@@ -136,8 +165,8 @@ _PATCH_ALLOWLIST: dict[str, set[str]] = {
 }
 
 _REPO_DELETE = {
-    "events":  lambda mc: EventRepository(mc).delete_event,
-    "matches": lambda mc: MatchRepository(mc).delete_match,
+    "events":  lambda mc: functools.partial(cascade.delete_event, mc),
+    "matches": lambda mc: functools.partial(cascade.delete_match, mc),
     "rounds":  lambda mc: RoundRepository(mc).delete_round,
     "throws":  lambda mc: ThrowRepository(mc).delete_throw,
     "players": lambda mc: PlayerRepository(mc).delete_player,
@@ -146,25 +175,20 @@ _REPO_DELETE = {
 
 
 @router.get("/users/create")
-async def get_create_user(request: Request, redis_client: RedisClient = Depends(get_redis_client)):
-    if not await _get_admin_user(request, redis_client):
-        return _LOGIN_REDIRECT
+async def get_create_user(request: Request, _: str = Depends(require_admin_page)):
     return templates.TemplateResponse(request=request, name="admin/create_user.html")
 
 
 @router.post("/users/create")
 async def post_create_user(
     request: Request,
+    _: str = Depends(require_admin_page),
     user_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(""),
     is_admin: str = Form("false"),
-    redis_client: RedisClient = Depends(get_redis_client),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return _LOGIN_REDIRECT
-
     generated_password = None
     if not password:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -192,25 +216,19 @@ async def post_create_user(
 
 
 @router.get("/events/create")
-async def get_create_event(request: Request, redis_client: RedisClient = Depends(get_redis_client)):
-    if not await _get_admin_user(request, redis_client):
-        return _LOGIN_REDIRECT
+async def get_create_event(request: Request, _: str = Depends(require_admin_page)):
     return templates.TemplateResponse(request=request, name="admin/create_event.html")
 
 
 @router.post("/events/create")
 async def post_create_event(
     request: Request,
+    admin_user: str = Depends(require_admin_page),
     event_name: str = Form(...),
     players: str = Form(...),
     start_timestamp: str = Form(""),
-    redis_client: RedisClient = Depends(get_redis_client),
     mongo_client=Depends(get_mongo_client),
 ):
-    admin_user = await _get_admin_user(request, redis_client)
-    if not admin_user:
-        return _LOGIN_REDIRECT
-
     ts = None
     if start_timestamp:
         try:
@@ -230,58 +248,41 @@ async def post_create_event(
 
 @router.post("/create/event")
 async def admin_create_event(
-    request: Request,
-    redis_client: RedisClient = Depends(get_redis_client),
+    body: EventCreate,
+    admin_user: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    admin_user = await _get_admin_user(request, redis_client)
-    if not admin_user:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    body = await request.json()
-    repo = EventRepository(mongo_client)
-    event = await repo.create_event(EventCreate(**body), admin_user)
+    event = await EventRepository(mongo_client).create_event(body, admin_user)
     return JSONResponse(status_code=200, content={"event_id": event.event_id})
 
 
 @router.post("/create/match")
 async def admin_create_match(
-    request: Request,
-    redis_client: RedisClient = Depends(get_redis_client),
+    body: MatchCreate,
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    body = await request.json()
-    repo = MatchRepository(mongo_client)
-    match = await repo.create_match(MatchCreate(**body))
+    match = await MatchRepository(mongo_client).create_match(body)
     return JSONResponse(status_code=200, content={"match_id": match.match_id})
 
 
 @router.post("/create/round")
 async def admin_create_round(
-    request: Request,
-    redis_client: RedisClient = Depends(get_redis_client),
+    body: RoundCreate,
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    body = await request.json()
-    repo = RoundRepository(mongo_client)
-    round_ = await repo.create_round(RoundCreate(**body))
+    round_ = await RoundRepository(mongo_client).create_round(body)
     return JSONResponse(status_code=200, content={"round_id": round_.round_id})
 
 
 @router.post("/create/throw")
 async def admin_create_throw(
-    request: Request,
-    redis_client: RedisClient = Depends(get_redis_client),
+    body: ThrowSubmit,
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    body = await request.json()
-    repo = ThrowRepository(mongo_client)
-    result = await repo.submit_throw(ThrowSubmit(**body))
+    result = await ThrowRepository(mongo_client).submit_throw(body)
     if result:
         return JSONResponse(status_code=200, content={"throw_id": result["throw_id"]})
     return JSONResponse(status_code=500, content={"detail": "Failed to submit throw"})
@@ -289,19 +290,15 @@ async def admin_create_throw(
 
 @router.post("/create/player")
 async def admin_create_player(
-    request: Request,
-    redis_client: RedisClient = Depends(get_redis_client),
+    body: PlayerCreate,
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-    body = await request.json()
-    repo = PlayerRepository(mongo_client)
     try:
-        player = await repo.create_player(PlayerCreate(**body))
-        return JSONResponse(status_code=200, content={"player_id": player.player_id})
+        player = await PlayerRepository(mongo_client).create_player(body)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": str(e)})
+    return JSONResponse(status_code=200, content={"player_id": player.player_id})
 
 
 @router.patch("/{collection}/{doc_id}")
@@ -309,12 +306,9 @@ async def patch_admin_doc(
     request: Request,
     collection: str,
     doc_id: str,
-    redis_client: RedisClient = Depends(get_redis_client),
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-
     if collection not in _COLLECTION_ID_FIELD:
         return JSONResponse(status_code=404, content={"detail": "Unknown collection"})
 
@@ -325,7 +319,7 @@ async def patch_admin_doc(
     if not body:
         return JSONResponse(status_code=400, content={"detail": "No fields to update"})
 
-    db_collection = await mongo_client.get_collection("axes", collection)
+    db_collection = await mongo_client.get_collection(DB_NAME, collection)
     existing = await db_collection.find_one({id_field: doc_id}, {"_id": 0})
     if not existing:
         return JSONResponse(status_code=404, content={"detail": "Document not found"})
@@ -346,15 +340,11 @@ async def patch_admin_doc(
 
 @router.delete("/{collection}/{doc_id}", status_code=204)
 async def delete_admin_doc(
-    request: Request,
     collection: str,
     doc_id: str,
-    redis_client: RedisClient = Depends(get_redis_client),
+    _: str = Depends(require_admin_api),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-
     if collection not in _REPO_DELETE:
         return JSONResponse(status_code=404, content={"detail": "Unknown collection"})
 
@@ -362,9 +352,8 @@ async def delete_admin_doc(
 
     # UserRepository.delete_user takes a UserDelete object; all others take a plain id string.
     if collection == "users":
-        from app.models.user import UserDelete
         id_field = _COLLECTION_ID_FIELD["users"]
-        db_collection = await mongo_client.get_collection("axes", "users")
+        db_collection = await mongo_client.get_collection(DB_NAME, "users")
         user_doc = await db_collection.find_one({id_field: doc_id}, {"_id": 0})
         if not user_doc:
             return JSONResponse(status_code=404, content={"detail": "User not found"})
@@ -381,12 +370,9 @@ async def get_admin_detail(
     request: Request,
     collection: str,
     doc_id: str,
-    redis_client: RedisClient = Depends(get_redis_client),
+    _: str = Depends(require_admin_page),
     mongo_client=Depends(get_mongo_client),
 ):
-    if not await _get_admin_user(request, redis_client):
-        return _LOGIN_REDIRECT
-
     if collection not in _COLLECTION_ID_FIELD:
         return templates.TemplateResponse(
             request=request,
@@ -396,7 +382,7 @@ async def get_admin_detail(
         )
 
     id_field = _COLLECTION_ID_FIELD[collection]
-    db_collection = await mongo_client.get_collection("axes", collection)
+    db_collection = await mongo_client.get_collection(DB_NAME, collection)
     exclude = {"_id": 0, "password_hash": 0} if collection == "users" else {"_id": 0}
     doc = await db_collection.find_one({id_field: doc_id}, exclude)
 

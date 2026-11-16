@@ -1,5 +1,7 @@
 import pytest
 
+from app.db.mongo import DB_NAME
+
 EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {
     "player_1_id": "player_1",
@@ -103,7 +105,7 @@ async def test_unlock_match_wrong_user(client, auth_token, mongo_client):
     event_id = client.post("/event", json=EVENT_PAYLOAD, headers=auth_headers(auth_token)).json()["event_id"]
     match_id = client.post("/match", json={**MATCH_PAYLOAD, "event_id": event_id}, headers=auth_headers(auth_token)).json()["match_id"]
     client.post(f"/match/{match_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "matches")
+    collection = await mongo_client.get_collection(DB_NAME, "matches")
     await collection.update_one({"match_id": match_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post(f"/match/{match_id}/unlock", headers=auth_headers(auth_token))
     assert response.status_code == 403
@@ -153,7 +155,7 @@ def test_create_match_in_finished_event(client, auth_token):
 async def test_create_match_in_event_locked_by_other(client, auth_token, mongo_client):
     event_id = make_event(client, auth_token)
     client.post(f"/event/{event_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "events")
+    collection = await mongo_client.get_collection(DB_NAME, "events")
     await collection.update_one({"event_id": event_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post("/match", json={**MATCH_PAYLOAD, "event_id": event_id}, headers=auth_headers(auth_token))
     assert response.status_code == 423
@@ -215,7 +217,7 @@ def make_match(client, auth_token, **extra):
 async def test_lock_match_held_by_other_reports_holder(client, auth_token, mongo_client):
     match = make_match(client, auth_token)
     client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "matches")
+    collection = await mongo_client.get_collection(DB_NAME, "matches")
     await collection.update_one({"match_id": match["match_id"]}, {"$set": {"locked_by": "other_coach"}})
 
     response = client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
@@ -227,7 +229,7 @@ async def test_lock_match_held_by_other_reports_holder(client, auth_token, mongo
 async def test_force_lock_takes_over(client, auth_token, mongo_client):
     match = make_match(client, auth_token)
     client.post(f"/match/{match['match_id']}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "matches")
+    collection = await mongo_client.get_collection(DB_NAME, "matches")
     await collection.update_one({"match_id": match["match_id"]}, {"$set": {"locked_by": "other_coach"}})
 
     response = client.post(f"/match/{match['match_id']}/lock?force=true", headers=auth_headers(auth_token))

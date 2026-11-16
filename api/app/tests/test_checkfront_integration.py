@@ -1,10 +1,9 @@
 import pytest
 
 from app.integrations.checkfront.parser import parse_checkfront_payload
-from app.services.checkfront_events import sync_checkfront_booking
 from app.repositories.event_repository import EventRepository
+from app.services.checkfront_events import sync_checkfront_booking
 from app.tests.fakes import FakeMongoClient
-
 
 SAMPLE_BOOKING = {
     "@attributes": {"version": "3.0", "host": "urbanaxes.checkfront.com"},

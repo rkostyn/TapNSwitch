@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
+
 from app.db.mongo import MongoClient
-from app.dependencies import get_mongo_client, get_current_user, rate_limit
-from app.repositories.round_repository import RoundRepository
-from app.repositories.match_repository import MatchRepository
-from app.repositories.event_repository import EventRepository
-from app.models.round import Round, RoundCreate
+from app.dependencies import get_current_user, get_mongo_client, rate_limit
 from app.logger import get_logger
+from app.models.round import Round, RoundCreate
+from app.repositories.round_repository import RoundRepository
+from app.services.match_guards import load_scorable_match
 
 logger = get_logger(__name__)
 
@@ -21,19 +21,7 @@ async def create_round(
 ):
     logger.info("Creating round for match %s", body.match_id)
     holder = x_client_id or current_user
-    match_repo = MatchRepository(mongo_client)
-    match = await match_repo.get_match(body.match_id)
-    if not match:
-        raise HTTPException(status_code=404, detail="Match not found")
-    if match.is_finished:
-        raise HTTPException(status_code=423, detail="Match is finished")
-    if match.is_locked and match.locked_by != holder:
-        raise HTTPException(status_code=423, detail="Match is locked by another device")
-    if match.event_id:
-        event_repo = EventRepository(mongo_client)
-        event = await event_repo.get_event(match.event_id)
-        if event and event.is_finished:
-            raise HTTPException(status_code=423, detail="Event is finished")
+    await load_scorable_match(mongo_client, body.match_id, holder, allow_finished=False)
     repo = RoundRepository(mongo_client)
     return await repo.create_round(body)
 

@@ -1,11 +1,13 @@
 import hashlib
 import secrets
+
 from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db.mongo import MongoClient
 from app.db.redis import RedisClient
 from app.logger import get_logger
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -56,9 +58,7 @@ async def get_current_user(
 
 
 async def verify_checkfront_webhook(request: Request) -> None:
-    import os
-
-    expected = (os.getenv("CHECKFRONT_WEBHOOK_SECRET") or "").strip()
+    expected = get_settings().checkfront_webhook_secret
     if not expected:
         logger.error("CHECKFRONT_WEBHOOK_SECRET is not configured")
         raise HTTPException(status_code=503, detail="Checkfront integration is not configured")
@@ -69,6 +69,6 @@ async def verify_checkfront_webhook(request: Request) -> None:
         if auth.lower().startswith("bearer "):
             provided = auth[7:].strip()
 
-    if provided != expected:
+    if not secrets.compare_digest(provided.encode(), expected.encode()):
         logger.warning("Invalid Checkfront webhook key presented")
         raise HTTPException(status_code=401, detail="Invalid webhook key")

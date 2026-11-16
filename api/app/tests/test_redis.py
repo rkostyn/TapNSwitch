@@ -78,3 +78,23 @@ async def test_close_calls_aclose(redis_wrapper):
     redis_wrapper._mock.aclose = AsyncMock()
     await redis_wrapper.close()
     redis_wrapper._mock.aclose.assert_awaited_once()
+
+
+async def test_acquire_lock_uses_set_nx_ex(redis_wrapper):
+    redis_wrapper._mock.set = AsyncMock(return_value=True)
+    token = await redis_wrapper.acquire_lock("lock:k", 10)
+    assert token
+    redis_wrapper._mock.set.assert_awaited_once_with("lock:k", token, nx=True, ex=10)
+
+
+async def test_acquire_lock_returns_none_when_held(redis_wrapper):
+    redis_wrapper._mock.set = AsyncMock(return_value=None)
+    assert await redis_wrapper.acquire_lock("lock:k", 10) is None
+
+
+async def test_release_lock_compares_token(redis_wrapper):
+    redis_wrapper._mock.eval = AsyncMock(return_value=1)
+    await redis_wrapper.release_lock("lock:k", "tok")
+    script, numkeys, key, token = redis_wrapper._mock.eval.await_args.args
+    assert "GET" in script and "DEL" in script
+    assert (numkeys, key, token) == (1, "lock:k", "tok")

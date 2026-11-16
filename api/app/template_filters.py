@@ -1,7 +1,10 @@
 """Custom Jinja2 template filters. Add new filters here and register them in templates.py."""
 
-import jinja2
 from datetime import datetime
+
+import jinja2
+
+from app.db.mongo import DB_NAME
 
 
 def datetimeformat(value, fmt="%Y-%m-%d %H:%M:%S"):
@@ -26,7 +29,7 @@ async def retrieve_x_latest(ctx, data_type: str, to_retrieve: int, sort_field: s
     """
     request = ctx["request"]
     mongo_client = request.app.state.mongo_client
-    collection = await mongo_client.get_collection("axes", data_type)
+    collection = await mongo_client.get_collection(DB_NAME, data_type)
     cursor = collection.find({}, {"_id": 0}).sort(sort_field, -1).limit(to_retrieve)
     return [doc async for doc in cursor]
 
@@ -42,7 +45,7 @@ async def find_related(ctx, value: str, collection: str, field: str, sort_field:
         return []
     request = ctx["request"]
     mongo_client = request.app.state.mongo_client
-    col = await mongo_client.get_collection("axes", collection)
+    col = await mongo_client.get_collection(DB_NAME, collection)
     cursor = col.find({field: value}, {"_id": 0}).sort(sort_field, -1).limit(limit)
     return [doc async for doc in cursor]
 
@@ -58,7 +61,7 @@ async def find_player_matches(ctx, player_id: str, limit: int = 100):
         return []
     request = ctx["request"]
     mongo_client = request.app.state.mongo_client
-    col = await mongo_client.get_collection("axes", "matches")
+    col = await mongo_client.get_collection(DB_NAME, "matches")
     cursor = col.find(
         {"$or": [{"player_1_id": player_id}, {"player_2_id": player_id}]},
         {"_id": 0},

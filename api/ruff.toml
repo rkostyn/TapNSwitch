@@ -1,0 +1,24 @@
+# Lint only; formatting is not enforced (no `ruff format`).
+target-version = "py313"
+line-length = 120
+extend-exclude = ["venv"]
+
+[lint]
+# pyflakes, pycodestyle errors, isort, bugbear
+select = ["F", "E", "I", "B"]
+# Long lines are common in this codebase and are a formatting concern.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Env vars must be set before the app is imported.
+"app/tests/conftest.py" = ["E402"]
+
+[lint.isort]
+known-first-party = ["app"]
+
+[lint.flake8-bugbear]
+# FastAPI dependency/parameter markers are evaluated once, by design.
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Body", "fastapi.Form",
+    "app.dependencies.rate_limit",
+]

@@ -1,45 +1,48 @@
 #!/usr/bin/env python3
 
-from fastapi import FastAPI, HTTPException, Request, APIRouter
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
-from prometheus_fastapi_instrumentator import Instrumentator
 import asyncio
+import json
+import os
 import re
 import time
-import os
-import json
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-_REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,64}$')
-from app.logger import get_logger, request_id_var
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from app.bootstrap.initial_admin import ensure_initial_admin
-from app.db.mongo import MongoClient
+from app.db.mongo import DB_NAME, MongoClient
 from app.db.redis import RedisClient
 from app.integrations.checkfront.client import CheckfrontApiClient
+from app.logger import get_logger, request_id_var
+from app.repositories.event_repository import EventRepository
+from app.routes.admin import AdminLoginRequired, admin_login_redirect
+from app.routes.admin import login_router as admin_login_router
+from app.routes.admin import router as admin_router
+from app.routes.auth import router as auth_router
+from app.routes.checkfront import router as checkfront_router
+from app.routes.errors import domain_error_handler
+from app.routes.event import router as event_router
+from app.routes.lane import router as lane_router
+from app.routes.match import router as match_router
+from app.routes.player import router as player_router
+from app.routes.round import router as round_router
+from app.routes.throw import router as throw_router
+from app.services.checkfront_pull import pull_checkfront_bookings
+from app.services.errors import DomainError
+from app.settings import get_settings
 
 logger = get_logger(__name__)
 
-# Routes
-from app.routes.auth import router as auth_router
-from app.routes.throw import router as throw_router
-from app.routes.round import router as round_router
-from app.routes.match import router as match_router
-from app.routes.event import router as event_router
-from app.routes.player import router as player_router
-from app.routes.checkfront import router as checkfront_router
-from app.routes.lane import router as lane_router
-
-# Admin route
-from app.routes.admin import router as admin_router, login_router as admin_login_router
+_REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9\-]{1,64}$')
 
 
 async def _checkfront_sync_loop(mongo_client: MongoClient) -> None:
-    interval = int(os.getenv("CHECKFRONT_SYNC_INTERVAL_SECONDS", "0") or "0")
+    interval = get_settings().checkfront_sync_interval_seconds
     if interval <= 0:
         logger.info(
             "Checkfront background sync disabled (CHECKFRONT_SYNC_INTERVAL_SECONDS=%s)",
@@ -52,9 +55,6 @@ async def _checkfront_sync_loop(mongo_client: MongoClient) -> None:
             "CHECKFRONT_API_KEY, and CHECKFRONT_API_SECRET"
         )
         return
-
-    from app.repositories.event_repository import EventRepository
-    from app.services.checkfront_pull import pull_checkfront_bookings
 
     logger.info("Checkfront background sync enabled every %s seconds", interval)
 
@@ -77,9 +77,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     with open(indexes_path) as f:
         indexes = json.load(f)
     for index in indexes:
-        logger.info("Creating index on %s.%s", index["db"], index["collection"])
+        logger.info("Creating index on %s.%s", DB_NAME, index["collection"])
         await client.create_index(
-            db_name=index["db"],
+            db_name=DB_NAME,
             collection_name=index["collection"],
             keys=index["keys"],
             unique=index.get("unique", False),
@@ -100,10 +100,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Shutdown complete")
 
 
-_is_production = os.getenv("ENV") == "production"
+_settings = get_settings()
+_is_production = _settings.is_production
 
 app = FastAPI(
-    title=f"{os.getenv('APP_NAME')} {int(time.time())}",
+    title=f"{_settings.app_name} {int(time.time())}",
     docs_url=None if _is_production else "/",
     redoc_url=None if _is_production else "/redoc",
     version="1",
@@ -122,7 +123,7 @@ app = FastAPI(
     }
 )
 
-_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+_cors_origins = _settings.cors_origin_list
 
 app.add_middleware(
     CORSMiddleware,
@@ -173,6 +174,9 @@ async def healthz(request: Request):
         raise HTTPException(status_code=503, detail="Redis unavailable")
     return {"message": "ok"}
 
+
+app.add_exception_handler(DomainError, domain_error_handler)
+app.add_exception_handler(AdminLoginRequired, admin_login_redirect)
 
 app.include_router(auth_router)
 app.include_router(throw_router)

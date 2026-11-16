@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class MatchCreate(BaseModel):
@@ -33,3 +34,4 @@ class Match(BaseModel):
     locked_at: Optional[datetime] = None
     is_finished: bool = False
     finished_at: Optional[datetime] = None
+    arena_id: Optional[str] = None

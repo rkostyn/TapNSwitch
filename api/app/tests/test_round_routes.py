@@ -1,5 +1,7 @@
 import pytest
 
+from app.db.mongo import DB_NAME
+
 EVENT_PAYLOAD = {"event_name": "Test Event", "players": ["Alice", "Bob"]}
 MATCH_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
 ROUND_PAYLOAD = {"player_1_id": "player_1", "player_2_id": "player_2", "sequence": 1}
@@ -93,7 +95,7 @@ async def test_unlock_round_wrong_user(client, auth_token, mongo_client):
     match_id = client.post("/match", json={**MATCH_PAYLOAD, "event_id": event_id}, headers=auth_headers(auth_token)).json()["match_id"]
     round_id = client.post("/round", json={**ROUND_PAYLOAD, "match_id": match_id}, headers=auth_headers(auth_token)).json()["round_id"]
     client.post(f"/round/{round_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "rounds")
+    collection = await mongo_client.get_collection(DB_NAME, "rounds")
     await collection.update_one({"round_id": round_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post(f"/round/{round_id}/unlock", headers=auth_headers(auth_token))
     assert response.status_code == 403
@@ -125,7 +127,7 @@ def test_create_round_in_finished_match(client, auth_token):
 async def test_create_round_in_match_locked_by_other(client, auth_token, mongo_client):
     match_id = make_match(client, auth_token)
     client.post(f"/match/{match_id}/lock", headers=auth_headers(auth_token))
-    collection = await mongo_client.get_collection("axes", "matches")
+    collection = await mongo_client.get_collection(DB_NAME, "matches")
     await collection.update_one({"match_id": match_id}, {"$set": {"locked_by": "another_user"}})
     response = client.post("/round", json={**ROUND_PAYLOAD, "match_id": match_id}, headers=auth_headers(auth_token))
     assert response.status_code == 423
