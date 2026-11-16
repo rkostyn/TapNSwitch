@@ -1,205 +1,62 @@
-<script setup>
+<script setup lang="ts">
   import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import UrbanScore from './UrbanScore.vue'
-  import { GHOST_PLAYER_ID } from '../config'
   import { arenaLabel } from '../venue'
-  import {
-    startRound as apiStartRound,
-    submitThrow,
-    deleteThrow,
-    getThrows,
-    getRoundsByMatch,
-    finishMatch,
-    unlockMatch,
-  } from '../api'
+  import type { MatchContext } from '../match'
+  import { roundTotal, type PlayerSide, type ScorePayload } from '../scoring/rules'
+  import { useMatchSync } from '../composables/useMatchSync'
+  import { useMatchScoring } from '../composables/useMatchScoring'
 
-  const props = defineProps(['player1Name', 'player2Name', 'totalRounds', 'matchContext'])
-  const emit = defineEmits(['resetScore', 'select', 'deselect', 'requestConfig', 'matchDone'])
+  const props = defineProps<{
+    player1Name: string
+    player2Name: string
+    totalRounds: number
+    matchContext: MatchContext | null
+  }>()
+  const emit = defineEmits<{
+    requestConfig: []
+    matchDone: []
+  }>()
 
-  const THROWS = 5
+  const sync = useMatchSync(() => props.matchContext)
+  const { syncError, finishing } = sync
+  const {
+    currentRound,
+    viewedRound,
+    tiebreak,
+    displayRound,
+    displayScores1,
+    displayScores2,
+    sidesSwapped,
+    slotCount,
+    showTiebreak,
+    tiebreakInProgress,
+    roundComplete,
+    player1Disabled,
+    player2Disabled,
+    gameOver,
+    allRoundRows,
+    needsTiebreak,
+    gameWinner,
+    tieUnresolved,
+    padDisabled,
+    clutchAvailable,
+    score,
+    startTiebreak,
+    nextRound,
+    viewRound,
+    selectScore,
+    confirmReset,
+    isSelected,
+    reset,
+  } = useMatchScoring(props, sync)
 
-  // Match ID — generated once per casual match; the event match id when one is selected
-  const matchId = ref(crypto.randomUUID())
-
-  // Game state
-  const currentRound = ref(1)
-  const activeTab = ref('p1')
-  const scores1 = ref(Array(THROWS).fill(null))
-  const scores2 = ref(Array(THROWS).fill(null))
-  const completedRounds = ref([])
-  const selected = ref(null) // { player: 1|2, index: number }
-
-  // A previously played round selected for review/editing; null = live round
-  const viewedRound = ref(null)
-
-  // Event-match sync state
-  const roundIdBySeq = ref({}) // round sequence -> round_id on the server
-  const syncError = ref('')
-  const finishing = ref(false)
+  // Narrow layouts show one panel at a time
+  const activeTab = ref<'p1' | 'scores' | 'p2'>('p1')
 
   // Scroll container for the score lines — kept pinned to the bottom as tie-break
   // attempts pile up past the visible five slots
-  const rowsEl = ref(null)
-
-  const displayRound = computed(() => viewedRound.value ?? currentRound.value)
-
-  // The tie breaker keeps the familiar five-slot look; extra attempts pad past it
-  const padTiebreak = (arr) =>
-    arr.length >= THROWS ? arr : [...arr, ...Array(THROWS - arr.length).fill(null)]
-
-  const displayScores1 = computed(() =>
-    showTiebreak.value ? padTiebreak(tiebreak.value.s1)
-    : viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores1
-    : scores1.value
-  )
-  const displayScores2 = computed(() =>
-    showTiebreak.value ? padTiebreak(tiebreak.value.s2)
-    : viewedRound.value ? completedRounds.value[viewedRound.value - 1].scores2
-    : scores2.value
-  )
-
-  // Sides swap every round; the tie breaker keeps player 1 on the left throughout
-  const sidesSwapped = computed(() => showTiebreak.value ? false : (displayRound.value - 1) % 2 === 1)
-
-  // Rows in the score grid: five per normal round. The tie breaker shows five
-  // slots too, growing (and scrolling) only once sudden death runs past them.
-  const slotCount = computed(() =>
-    showTiebreak.value ? Math.max(THROWS, tiebreak.value.s1.length) : THROWS
-  )
-
-  // Which player name/scores are on the left vs right panel for the displayed round
-  const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
-  const rightName = computed(() => sidesSwapped.value ? props.player1Name : props.player2Name)
-  const leftScores = computed(() => sidesSwapped.value ? displayScores2.value : displayScores1.value)
-  const rightScores = computed(() => sidesSwapped.value ? displayScores1.value : displayScores2.value)
-  const applyScoreLeft = (payload) => routeScore(sidesSwapped.value ? 2 : 1, payload)
-  const applyScoreRight = (payload) => routeScore(sidesSwapped.value ? 1 : 2, payload)
-
-  // The score panels do double duty: during a tie breaker they record the
-  // sudden-death throws; otherwise they score the round on display.
-  // payload = { points: number, clutch: boolean, drop: boolean }
-  function routeScore(player, payload) {
-    if (tiebreakActive.value && !viewedRound.value && !selected.value) tiebreakScore(player, payload)
-    else applyScore(player, payload)
-  }
-
-  // Solo (ghost) match: one side is the ghost, which scores 0 on every throw.
-  // It is filled automatically whenever the real player throws, never by hand.
-  const ghostSide = computed(() =>
-    props.matchContext?.player1Id === GHOST_PLAYER_ID ? 1
-    : props.matchContext?.player2Id === GHOST_PLAYER_ID ? 2
-    : null
-  )
-
-  const roundComplete = computed(() => scores1.value.every(s => s !== null) && scores2.value.every(s => s !== null))
-
-  const throws1 = computed(() => scores1.value.filter(s => s !== null).length)
-  const throws2 = computed(() => scores2.value.filter(s => s !== null).length)
-  const player1Disabled = computed(() => throws1.value > throws2.value)
-  const player2Disabled = computed(() => throws2.value > throws1.value)
-  const player1ClutchAvailable = computed(() => throws1.value === THROWS - 1)
-  const player2ClutchAvailable = computed(() => throws2.value === THROWS - 1)
-  // Best-of match: the game ends when a player clinches a majority of the
-  // rounds, or when every round has been played.
-  const gameOver = computed(() =>
-    roundComplete.value && (currentRound.value === props.totalRounds || clinched.value)
-  )
-
-  // Alternating-throw rules only gate the live round; past rounds edit freely.
-  // During a tie breaker a side locks once its throw for the current attempt is in.
-  const tbEntered = (player) => {
-    const tb = tiebreak.value
-    if (!tb) return false
-    const arr = player === 1 ? tb.s1 : tb.s2
-    return arr[arr.length - 1] !== null
-  }
-
-  function sideDisabled(player) {
-    if (player === ghostSide.value) return true // the ghost never throws by hand
-    if (selected.value?.player === player) return false // editing a placed score
-    if (viewedRound.value) return false
-    if (tiebreakActive.value) return tbEntered(player)
-    return player === 1 ? player1Disabled.value : player2Disabled.value
-  }
-
-  function sideClutchAvailable(player) {
-    if (viewedRound.value) return true
-    if (tiebreakActive.value) return tiebreak.value.phase === 'clutch'
-    // Replacing the last and final throw? Clutch is still on the table.
-    if (selected.value?.player === player && selected.value.index === THROWS - 1) return true
-    return player === 1 ? player1ClutchAvailable.value : player2ClutchAvailable.value
-  }
-
-  const leftDisabled = computed(() => sideDisabled(sidesSwapped.value ? 2 : 1))
-  const rightDisabled = computed(() => sideDisabled(sidesSwapped.value ? 1 : 2))
-  const leftClutchAvailable = computed(() => sideClutchAvailable(sidesSwapped.value ? 2 : 1))
-  const rightClutchAvailable = computed(() => sideClutchAvailable(sidesSwapped.value ? 1 : 2))
-
-  const sum = arr => arr.reduce((a, s) => a + (s ? s.value : 0), 0)
-
-  // Rounds won so far (the live round counts once it is complete). A majority
-  // clinches the best-of match — 3 of 5, 4 of 7, etc.
-  const clinchTarget = computed(() => Math.floor(props.totalRounds / 2) + 1)
-  const roundWins = computed(() => {
-    const rounds = [...completedRounds.value]
-    if (roundComplete.value) rounds.push({ scores1: scores1.value, scores2: scores2.value })
-    let p1 = 0, p2 = 0
-    for (const r of rounds) {
-      const t1 = sum(r.scores1), t2 = sum(r.scores2)
-      if (t1 > t2) p1++
-      else if (t2 > t1) p2++
-    }
-    return { p1, p2 }
-  })
-  const clinched = computed(() =>
-    roundWins.value.p1 >= clinchTarget.value || roundWins.value.p2 >= clinchTarget.value
-  )
-
-  const allRoundRows = computed(() =>
-    Array.from({ length: props.totalRounds }, (_, i) => {
-      const roundNum = i + 1
-      if (roundNum < currentRound.value) {
-        const r = completedRounds.value[i]
-        const t1 = sum(r.scores1), t2 = sum(r.scores2)
-        return { round: roundNum, t1, t2, status: t1 > t2 ? 'p1' : t2 > t1 ? 'p2' : 'tie' }
-      } else if (roundNum === currentRound.value) {
-        const t1 = sum(scores1.value), t2 = sum(scores2.value)
-        const done = roundComplete.value
-        return { round: roundNum, t1, t2, status: done ? (t1 > t2 ? 'p1' : t2 > t1 ? 'p2' : 'tie') : 'in-progress' }
-      } else {
-        return { round: roundNum, t1: null, t2: null, status: 'pending' }
-      }
-    })
-  )
-
-  const overallWinner = computed(() => {
-    if (!gameOver.value) return null
-    const { p1, p2 } = roundWins.value
-    return p1 > p2 ? props.player1Name : p2 > p1 ? props.player2Name : 'tie'
-  })
-
-  // --- Tie breaker -----------------------------------------------------------
-  // Equal rounds taken is a draw; sudden death settles it. One throw per side
-  // at bulls; both sticking a bull goes up to clutch; three clutch rounds in a
-  // row with neither hitting drops back down to bulls.
-  const tiebreak = ref(null) // { phase, attempt, s1, s2, missedClutchRounds, winner }
-
-  const needsTiebreak = computed(() =>
-    gameOver.value && overallWinner.value === 'tie' && !props.matchContext?.isFinished
-  )
-
-  const tiebreakActive = computed(() => !!tiebreak.value && !tiebreak.value.winner)
-
-  // The tie breaker plays out in the main score grid rather than a separate box,
-  // unless the user has stepped away to review an earlier round.
-  const showTiebreak = computed(() => !!tiebreak.value && !viewedRound.value)
-  const tiebreakInProgress = computed(() => showTiebreak.value && !tiebreak.value.winner)
-
-  // The game's winner once it's over — the tie breaker's winner when the rounds
-  // ended level, otherwise whoever took more rounds. Null until the game ends.
-  const gameWinner = computed(() =>
-    tiebreak.value?.winner ?? (overallWinner.value !== 'tie' ? overallWinner.value : null)
-  )
+  const rowsEl = ref<HTMLElement | null>(null)
 
   // As sudden death adds slots, keep the newest attempt in view at the bottom
   watch(slotCount, () => {
@@ -209,292 +66,47 @@
     })
   })
 
-  // A tied game cannot be finished until the tie breaker settles it
-  const tieUnresolved = computed(() =>
-    gameOver.value && overallWinner.value === 'tie' && !tiebreak.value?.winner
-  )
+  // Which player name/scores/pad state is on the left vs right panel for the displayed round
+  const leftPlayer = computed<PlayerSide>(() => (sidesSwapped.value ? 2 : 1))
+  const rightPlayer = computed<PlayerSide>(() => (sidesSwapped.value ? 1 : 2))
+  const leftName = computed(() => sidesSwapped.value ? props.player2Name : props.player1Name)
+  const rightName = computed(() => sidesSwapped.value ? props.player1Name : props.player2Name)
+  const leftScores = computed(() => sidesSwapped.value ? displayScores2.value : displayScores1.value)
+  const rightScores = computed(() => sidesSwapped.value ? displayScores1.value : displayScores2.value)
+  const leftDisabled = computed(() => padDisabled(leftPlayer.value))
+  const rightDisabled = computed(() => padDisabled(rightPlayer.value))
+  const leftClutchAvailable = computed(() => clutchAvailable(leftPlayer.value))
+  const rightClutchAvailable = computed(() => clutchAvailable(rightPlayer.value))
+  const applyScoreLeft = (payload: ScorePayload) => score(leftPlayer.value, payload)
+  const applyScoreRight = (payload: ScorePayload) => score(rightPlayer.value, payload)
 
-  // Each attempt is its own one-slot round on the server, sequenced after the
-  // regular rounds. s1/s2 grow in lockstep, one entry per attempt.
-  function tiebreakSeq() {
-    return props.totalRounds + tiebreak.value.s1.length
-  }
-
-  function startTiebreak() {
-    tiebreak.value = { phase: 'bull', s1: [null], s2: [null], missedClutchRounds: 0, winner: null }
-    ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
-  }
-
-  function tiebreakScore(player, payload) {
-    const tb = tiebreak.value
-    if (!tb || tb.winner) return
-    const arr = player === 1 ? tb.s1 : tb.s2
-    const idx = arr.length - 1
-    if (arr[idx] !== null) return
-    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
-    arr[idx] = entry
-    syncEntry(entry, player, null, tiebreakSeq())
-    if (tb.s1[idx] !== null && tb.s2[idx] !== null) resolveTiebreakAttempt()
-  }
-
-  function resolveTiebreakAttempt() {
-    const tb = tiebreak.value
-    const idx = tb.s1.length - 1
-    const v1 = tb.s1[idx].value, v2 = tb.s2[idx].value
-    if (v1 !== v2) {
-      tb.winner = v1 > v2 ? props.player1Name : props.player2Name
-      return
-    }
-    if (tb.phase === 'bull') {
-      // Both stuck their bulls — they may go up for clutch
-      if (v1 === 5) tb.phase = 'clutch'
-    } else if (v1 > 0) {
-      // Both landed a clutch — stay up for clutch
-      tb.missedClutchRounds = 0
-    } else {
-      tb.missedClutchRounds++
-      if (tb.missedClutchRounds >= 3) {
-        tb.phase = 'bull'
-        tb.missedClutchRounds = 0
-      }
-    }
-    // Still tied — open a fresh slot for the next attempt
-    tb.s1.push(null)
-    tb.s2.push(null)
-    ensureRound(tiebreakSeq()).catch(() => { syncError.value = 'Could not start the tie-breaker round on the server.' })
-  }
-
-  function applyScore(player, payload) {
-    if (!payload || typeof payload.points !== 'number') return
-    const entry = { value: payload.points, clutch: !!payload.clutch, drop: !!payload.drop }
-
-    const arr = player === 1 ? displayScores1.value : displayScores2.value
-    let oldEntry = null
-    let idx
-    if (selected.value?.player === player) {
-      idx = selected.value.index
-      oldEntry = arr[idx]
-      arr[idx] = entry
-      selected.value = null
-    } else {
-      idx = arr.indexOf(null)
-      if (idx === -1) return
-      arr[idx] = entry
-    }
-    syncEntry(entry, player, oldEntry, displayRound.value)
-    // In a ghost match the opponent doesn't throw — mirror a 0 into the ghost's
-    // matching slot so the round fills and completes normally.
-    if (ghostSide.value !== null && player !== ghostSide.value) fillGhost(idx)
-  }
-
-  function fillGhost(index) {
-    const g = ghostSide.value
-    const arr = g === 1 ? displayScores1.value : displayScores2.value
-    if (arr[index] !== null) return
-    const entry = { value: 0, clutch: false }
-    arr[index] = entry
-    syncEntry(entry, g, null, displayRound.value)
-  }
-
-  // Persist a placed/edited score to the API when scoring an event match
-  async function syncEntry(entry, player, oldEntry, roundSeq) {
-    const ctx = props.matchContext
-    if (!ctx) return
-    try {
-      syncError.value = ''
-      if (oldEntry?.throwId) await deleteThrow(oldEntry.throwId)
-      await ensureRound(roundSeq)
-      const roundId = roundIdBySeq.value[roundSeq]
-      if (!roundId) {
-        syncError.value = 'This round does not exist on the server.'
-        return
-      }
-      entry.throwId = await submitThrow({
-        playerId: player === 1 ? ctx.player1Id : ctx.player2Id,
-        roundId,
-        matchId: matchId.value,
-        eventId: ctx.eventId,
-        points: entry.value,
-        isDrop: !!entry.drop,
-        clutchCalled: !!entry.clutch,
-      })
-    } catch (e) {
-      syncError.value = 'Score was not saved to the server.'
-    }
-  }
-
-  async function ensureRound(seq) {
-    const ctx = props.matchContext
-    if (!ctx || roundIdBySeq.value[seq]) return
-    // Finished matches can't grow new rounds — only existing ones are editable
-    if (ctx.isFinished) return
-    const round = await apiStartRound(matchId.value, ctx.player1Id, ctx.player2Id, seq)
-    roundIdBySeq.value = { ...roundIdBySeq.value, [seq]: round.round_id }
-  }
-
-  function resetScore(player, index) {
-    const arr = player === 1 ? displayScores1.value : displayScores2.value
-    const old = arr[index]
-    arr[index] = null
-    if (props.matchContext && old?.throwId) {
-      deleteThrow(old.throwId).catch(() => { syncError.value = 'Score was not removed on the server.' })
-    }
-  }
-
-  function nextRound() {
-    completedRounds.value.push({ scores1: [...scores1.value], scores2: [...scores2.value] })
-    currentRound.value++
-    scores1.value = Array(THROWS).fill(null)
-    scores2.value = Array(THROWS).fill(null)
-    selected.value = null
-    viewedRound.value = null
-    ensureRound(currentRound.value).catch(() => { syncError.value = 'Could not start the round on the server.' })
-  }
-
-  // Click a round in the results table to review/edit it, even after the match ended
-  function viewRound(roundNum) {
-    if (roundNum > currentRound.value) return
-    selected.value = null
-    viewedRound.value = roundNum === currentRound.value ? null : roundNum
-  }
-
-  function clearLocalState() {
-    currentRound.value = 1
-    scores1.value = Array(THROWS).fill(null)
-    scores2.value = Array(THROWS).fill(null)
-    completedRounds.value = []
-    selected.value = null
-    viewedRound.value = null
-    roundIdBySeq.value = {}
-    syncError.value = ''
-    tiebreak.value = null
-  }
+  const total = roundTotal
 
   function resetGame() {
-    if (props.matchContext) {
-      initEventMatch()
-      return
-    }
-    clearLocalState()
-    matchId.value = crypto.randomUUID()
+    void reset()
   }
 
   defineExpose({ resetGame })
 
-  // Rebuild local scoring state from the server when an event match is selected,
-  // so previously played rounds can be reviewed and adjusted.
-  async function initEventMatch() {
-    clearLocalState()
-    const ctx = props.matchContext
-    if (!ctx) {
-      matchId.value = crypto.randomUUID()
-      return
-    }
-    matchId.value = ctx.matchId
-    try {
-      const rounds = await getRoundsByMatch(ctx.matchId)
-      const map = {}
-      for (const r of rounds) map[r.sequence] = r.round_id
-      roundIdBySeq.value = map
-      const throws = await getThrows({ matchId: ctx.matchId })
-      restoreFromThrows(throws)
-      await ensureRound(currentRound.value)
-    } catch (e) {
-      syncError.value = 'Could not sync this match with the server.'
-    }
-  }
-
-  function restoreFromThrows(throws) {
-    const ctx = props.matchContext
-    const bySeq = {}
-    for (const [seq, roundId] of Object.entries(roundIdBySeq.value)) {
-      const arr1 = Array(THROWS).fill(null)
-      const arr2 = Array(THROWS).fill(null)
-      const roundThrows = throws
-        .filter(t => t.round_id === roundId)
-        .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
-      for (const t of roundThrows) {
-        const arr = t.player_id === ctx.player1Id ? arr1 : t.player_id === ctx.player2Id ? arr2 : null
-        if (!arr) continue
-        const idx = arr.indexOf(null)
-        if (idx !== -1) arr[idx] = { value: t.points, drop: !!t.is_drop, throwId: t.throw_id }
-      }
-      bySeq[Number(seq)] = { arr1, arr2 }
-    }
-
-    const completed = []
-    let cur = 1
-    let curScores = null
-    for (let seq = 1; seq <= props.totalRounds; seq++) {
-      const entry = bySeq[seq]
-      const complete = entry && !entry.arr1.includes(null) && !entry.arr2.includes(null)
-      if (complete && seq < props.totalRounds) {
-        completed.push({ scores1: entry.arr1, scores2: entry.arr2 })
-        continue
-      }
-      cur = seq
-      curScores = entry ?? null
-      break
-    }
-    completedRounds.value = completed
-    currentRound.value = cur
-    scores1.value = curScores ? curScores.arr1 : Array(THROWS).fill(null)
-    scores2.value = curScores ? curScores.arr2 : Array(THROWS).fill(null)
-  }
-
+  // Rebuild local scoring state (from the server, for an event match) whenever
+  // a match is selected, so previously played rounds can be reviewed and adjusted.
   watch(() => props.matchContext, () => { resetGame() }, { immediate: true })
 
-  // Leave a finished match after editing its scores — the API recomputes the
-  // winner on every edit, so there is nothing to re-finish.
   async function backToEvent() {
-    try { await unlockMatch(matchId.value) } catch (e) { /* lock may already be released */ }
+    await sync.leave()
     emit('matchDone')
   }
 
   async function finishEventMatch() {
     if (tieUnresolved.value) return
-    finishing.value = true
-    syncError.value = ''
-    try {
-      await finishMatch(matchId.value)
-      try { await unlockMatch(matchId.value) } catch (e) { /* lock may already be released */ }
-      emit('matchDone')
-    } catch (e) {
-      const detail = e?.response?.data?.detail
-      syncError.value = typeof detail === 'string' ? detail : (detail?.message ?? 'Failed to finish the match.')
-    } finally {
-      finishing.value = false
-    }
-  }
-
-  // Score cell helpers
-  function selectScore(player, index) {
-    if (showTiebreak.value) return // tie-break throws aren't individually editable
-    selected.value = { player, index }
-  }
-
-  function deselectScore() {
-    selected.value = null
-  }
-
-  function confirmReset() {
-    resetScore(selected.value.player, selected.value.index)
-    selected.value = null
-  }
-
-  function isSelected(player, index) {
-    return selected.value?.player === player && selected.value?.index === index
-  }
-
-  function total(scores) {
-    return scores.reduce((s, x) => s + (x ? x.value : 0), 0)
+    if (await sync.finish()) emit('matchDone')
   }
 
   // Keyboard scoring: number keys 0, 1, 3 and 5 record a regular throw for the left
   // player, or the right player when the left side is locked (its turn is up).
-  function handleKeydown(e) {
+  function handleKeydown(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey) return
-    const el = e.target
+    const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
     if (!/^[0135]$/.test(e.key)) return
     const payload = { points: parseInt(e.key), clutch: false }
@@ -555,7 +167,7 @@
                     :class="{ selected: isSelected(sidesSwapped ? 2 : 1, i-1) }"
                     @click="isSelected(sidesSwapped ? 2 : 1, i-1) ? confirmReset() : selectScore(sidesSwapped ? 2 : 1, i-1)"
                   >
-                    {{ leftScores[i-1].value }}<sup v-if="leftScores[i-1].drop" class="drop-marker">d</sup>
+                    {{ leftScores[i-1]?.value }}<sup v-if="leftScores[i-1]?.drop" class="drop-marker">d</sup>
                   </button>
                   <button
                     v-if="isSelected(sidesSwapped ? 2 : 1, i-1)"
@@ -579,7 +191,7 @@
                     :class="{ selected: isSelected(sidesSwapped ? 1 : 2, i-1) }"
                     @click="isSelected(sidesSwapped ? 1 : 2, i-1) ? confirmReset() : selectScore(sidesSwapped ? 1 : 2, i-1)"
                   >
-                    {{ rightScores[i-1].value }}<sup v-if="rightScores[i-1].drop" class="drop-marker">d</sup>
+                    {{ rightScores[i-1]?.value }}<sup v-if="rightScores[i-1]?.drop" class="drop-marker">d</sup>
                   </button>
                   <button
                     v-if="isSelected(sidesSwapped ? 1 : 2, i-1)"
@@ -607,8 +219,8 @@
             Editing Round {{ viewedRound }} — tap to return to Round {{ currentRound }}
           </button>
           <span v-else-if="tiebreakInProgress" class="tiebreak-hint">
-            <strong>Sudden death — {{ tiebreak.phase === 'clutch' ? 'Clutch' : 'Bulls' }}.</strong>
-            <template v-if="tiebreak.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
+            <strong>Sudden death — {{ tiebreak?.phase === 'clutch' ? 'Clutch' : 'Bulls' }}.</strong>
+            <template v-if="tiebreak?.phase === 'bull'"> One throw each; both stick a bull (5) to force clutch.</template>
             <template v-else> Tap Clutch, then score 7 or 0. Three misses each drops back to bulls.</template>
           </span>
           <button v-else-if="needsTiebreak && !tiebreak" class="next-round-btn" @click="startTiebreak">

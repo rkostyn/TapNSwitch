@@ -1,32 +1,38 @@
-<script setup>
+<script setup lang="ts">
   import { computed } from 'vue'
+  import type { ApiMatch } from '../api'
 
-  const props = defineProps(['matches'])
-  const emit = defineEmits(['select', 'updateRounds'])
+  const props = defineProps<{ matches: ApiMatch[] }>()
+  const emit = defineEmits<{
+    select: [match: ApiMatch]
+    updateRounds: [match: ApiMatch, rounds: number]
+  }>()
 
   const rounds = computed(() => {
-    const grouped = {}
+    const grouped: Record<string, ApiMatch[]> = {}
     for (const m of props.matches) {
-      (grouped[m.bracket_round] ??= []).push(m)
+      (grouped[String(m.bracket_round)] ??= []).push(m)
     }
-    return Object.keys(grouped)
-      .map(Number)
-      .sort((a, b) => a - b)
-      .map(r => ({ round: r, matches: grouped[r].sort((a, b) => a.bracket_slot - b.bracket_slot) }))
+    return Object.entries(grouped)
+      .map(([round, roundMatches]) => ({
+        round: Number(round),
+        matches: roundMatches.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0)),
+      }))
+      .sort((a, b) => a.round - b.round)
   })
 
-  function roundLabel(roundMatches, round) {
+  function roundLabel(roundMatches: ApiMatch[], round: number) {
     if (roundMatches.length === 1) return 'Final'
     if (roundMatches.length === 2) return 'Semifinals'
     return `Round ${round}`
   }
 
-  function playerLabel(name) {
+  function playerLabel(name: string | null) {
     return name ?? 'TBD'
   }
 
-  function changeRounds(match, event) {
-    const value = parseInt(event.target.value)
+  function changeRounds(match: ApiMatch, event: Event) {
+    const value = parseInt((event.target as HTMLInputElement).value)
     if (!isNaN(value) && value >= 1 && value !== match.rounds_per_match) {
       emit('updateRounds', match, value)
     }

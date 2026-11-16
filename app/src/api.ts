@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { config } from './config'
+import { config, type PairingStyle } from './config'
 import { getCookie, setCookie } from './cookies'
 import { getOrCreateClientId } from './clientId'
 
@@ -30,13 +30,38 @@ http.interceptors.request.use(async req => {
     if (!isNaN(issuedAt) && Date.now() - issuedAt > REFRESH_AFTER_MS) {
       refreshPromise ??= refreshToken(token, tokenType).finally(() => { refreshPromise = null })
       // If the refresh fails, continue with the current (still valid) token
-      await refreshPromise.catch(() => {})
+      await refreshPromise.catch(e => { console.error('Token refresh failed; using the current token', e) })
       token = getCookie('access_token') ?? token
     }
     req.headers.Authorization = `${getCookie('token_type') ?? tokenType} ${token}`
   }
   return req
 })
+
+// --- Errors -----------------------------------------------------------------
+
+/** HTTP status of a failed request, if the server answered at all. */
+export function errorStatus(e: unknown): number | undefined {
+  return axios.isAxiosError(e) ? e.response?.status : undefined
+}
+
+/** The FastAPI `detail` field of a failed request (a string, an object, or a validation list). */
+export function errorDetail(e: unknown): unknown {
+  return axios.isAxiosError(e) ? (e.response?.data as { detail?: unknown } | undefined)?.detail : undefined
+}
+
+/**
+ * A user-facing message for a failed request: the API's `detail` when it is a
+ * string, or its `detail.message`, otherwise `fallback`.
+ */
+export function apiErrorMessage(e: unknown, fallback: string): string {
+  const detail = errorDetail(e)
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string' && detail.message) {
+    return detail.message
+  }
+  return fallback
+}
 
 export interface SwissStanding {
   player: string
@@ -46,11 +71,16 @@ export interface SwissStanding {
   matches_played: number
 }
 
+/** 'standard' (everyday floor group) or 'tournament'. Missing on older events means standard. */
+export type EventType = 'standard' | 'tournament'
+
 export interface ApiEvent {
   event_id: string
-  event_name: string
+  event_name: string | null
+  event_type?: EventType
   players: string[]
   late_players: string[]
+  timestamp: string
   source?: 'manual' | 'checkfront'
   checkfront_booking_code?: string | null
   start_timestamp?: string | null
@@ -58,7 +88,7 @@ export interface ApiEvent {
   suggested_arena_count?: number
   suggested_arena_ids?: string[]
   arena_ids?: string[]
-  pairing_style?: 'round_robin' | 'swiss'
+  pairing_style?: PairingStyle
   swiss_matches_per_player: number
   swiss_rounds_per_match: number
   swiss_generated_at: string | null
@@ -81,14 +111,10 @@ export interface ApiMatch {
   bracket_slot: number | null
   arena_id?: string | null
   winner_id: string | null
+  timestamp: string
   is_locked: boolean
   locked_by: string | null
   is_finished: boolean
-}
-
-export interface ApiArena {
-  id: string
-  label: string
 }
 
 export interface ApiRound {
@@ -97,6 +123,13 @@ export interface ApiRound {
   player_1_id: string
   player_2_id: string
   sequence: number
+  timestamp: string
+}
+
+/** Body of a 423 from `POST /match/{id}/lock` when another device holds the match. */
+export interface MatchLockedDetail {
+  message?: string
+  locked_by?: string
 }
 
 export async function login(username: string, password: string): Promise<{ access_token: string; token_type: string; expires_in: number }> {
@@ -156,18 +189,23 @@ export async function syncCheckfrontBookings(): Promise<CheckfrontSyncResult> {
   return data
 }
 
-export async function getVenueArenas(): Promise<ApiArena[]> {
-  const { data } = await http.get('/venue/arenas')
-  return data.arenas
-}
-
 export async function getEvent(eventId: string): Promise<ApiEvent> {
   const { data } = await http.get(`/event/${eventId}`)
   return data
 }
 
-export async function createEvent(name: string, players: string[]): Promise<void> {
-  await http.post('/event', { event_name: name, players })
+export async function createEvent(name: string, players: string[], eventType: EventType = 'standard'): Promise<void> {
+  await http.post('/event', { event_name: name, players, event_type: eventType })
+}
+
+/**
+ * Switch an event between standard and tournament. The API resets its
+ * pairing style to the new type's default, and answers 409 once the event
+ * has generated matches or a bracket.
+ */
+export async function setEventType(eventId: string, eventType: EventType): Promise<ApiEvent> {
+  const { data } = await http.put(`/event/${eventId}/type`, { event_type: eventType })
+  return data
 }
 
 export interface LaneInfo {
@@ -178,6 +216,7 @@ export interface LaneInfo {
 export interface LaneGroup {
   event_id: string
   event_name: string | null
+  event_type?: EventType
   players: string[]
   source: string
   checkfront_booking_code: string | null
@@ -188,12 +227,27 @@ export interface LaneGroup {
   arena_ids: string[]
 }
 
-export interface ArenaCard {
+/** One colored arena of the venue floor and its lanes. */
+export interface VenueArena {
   arena_id: string
   name: string
   color: string
   text_color: string
   lanes: LaneInfo[]
+}
+
+/** `GET /venue`: the floor layout (unauthenticated). */
+export interface VenueLayout {
+  venue: string
+  arenas: VenueArena[]
+}
+
+export async function getVenue(): Promise<VenueLayout> {
+  const { data } = await http.get('/venue')
+  return data
+}
+
+export interface ArenaCard extends VenueArena {
   group: LaneGroup | null
 }
 
@@ -237,7 +291,7 @@ export async function updateSwissConfig(
   eventId: string,
   matchesPerPlayer: number,
   roundsPerMatch: number,
-  pairingStyle: 'round_robin' | 'swiss' = 'round_robin',
+  pairingStyle: PairingStyle,
 ): Promise<ApiEvent> {
   const { data } = await http.put(`/event/${eventId}/swiss-config`, {
     swiss_matches_per_player: matchesPerPlayer,
@@ -348,8 +402,10 @@ export interface ApiThrow {
   player_id: string
   round_id: string
   match_id: string
+  event_id?: string | null
   points: number
-  is_drop: boolean
+  clutch_called?: boolean | null
+  is_drop?: boolean | null
 }
 
 export async function getThrows(criteria: { matchId?: string; roundId?: string; eventId?: string }): Promise<ApiThrow[]> {

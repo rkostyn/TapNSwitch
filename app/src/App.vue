@@ -1,17 +1,20 @@
-<script setup>
-  import { ref, nextTick, computed } from 'vue'
+<script setup lang="ts">
+  import { ref, nextTick, computed, useTemplateRef } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './config'
   import { arenaLabel } from './venue'
+  import { useEventsModal } from './composables/useEventsModal'
+  import type { ApiEvent } from './api'
+  import type { MatchContext, SelectMatchPayload } from './match'
 
-  const displayName = id => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
+  const displayName = (id: string) => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
 
   const totalRounds = ref(3)
   const player1Name = ref('Player 1')
   const player2Name = ref('Player 2')
-  const matchContext = ref(null) // { matchId, eventId, player1Id, player2Id, eventName }
-  const activeGroup = ref(null)
+  const matchContext = ref<MatchContext | null>(null)
+  const activeGroup = ref<ApiEvent | null>(null)
 
   const showConfig = ref(true)
   const configRounds = ref(3)
@@ -21,16 +24,17 @@
   const rosterPlayers = computed(() => activeGroup.value?.players ?? [])
   const useRosterPicker = computed(() => rosterPlayers.value.length >= 2)
 
-  const scoreboard = ref(null)
-  const header = ref(null)
+  const scoreboard = useTemplateRef('scoreboard')
+  const { openEvents } = useEventsModal()
 
-  function onSelectGroup(group) {
+  function onSelectGroup(group: ApiEvent | null) {
     activeGroup.value = group
-    if (group?.players?.length >= 2) {
-      configP1.value = group.players[0]
-      configP2.value = group.players[1]
-      player1Name.value = group.players[0]
-      player2Name.value = group.players[1]
+    const [first, second] = group?.players ?? []
+    if (first !== undefined && second !== undefined) {
+      configP1.value = first
+      configP2.value = second
+      player1Name.value = first
+      player2Name.value = second
     }
   }
 
@@ -47,10 +51,15 @@
     player1Name.value = configP1.value || 'Player 1'
     player2Name.value = configP2.value || 'Player 2'
     showConfig.value = false
-    nextTick(() => scoreboard.value.resetGame())
+    nextTick(() => scoreboard.value?.resetGame())
   }
 
-  function onSelectMatch({ match, event, arenaLabel: matchArenaLabel }) {
+  function onSelectMatch({ match, event, arenaLabel: matchArenaLabel }: SelectMatchPayload) {
+    // EventDetail refuses to lock a match until both players are decided
+    if (!match.player_1_id || !match.player_2_id) {
+      console.error('Selected match has an undecided player; not opening it', match)
+      return
+    }
     player1Name.value = displayName(match.player_1_id)
     player2Name.value = displayName(match.player_2_id)
     totalRounds.value = match.rounds_per_match
@@ -70,8 +79,8 @@
   function onMatchDone() {
     const eventId = matchContext.value?.eventId ?? null
     matchContext.value = null
-    if (eventId && header.value) {
-      header.value.openEvents(eventId)
+    if (eventId) {
+      openEvents(eventId)
     } else {
       openConfig()
     }
@@ -80,7 +89,7 @@
 
 <template>
   <div class="page">
-    <AppHeader ref="header" @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
+    <AppHeader @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">
       <ScoreBoard

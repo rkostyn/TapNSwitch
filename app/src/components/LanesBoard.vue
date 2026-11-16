@@ -1,11 +1,15 @@
-<script setup>
+<script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
-  import { getLaneBoard, assignEventArenas } from '../api'
+  import { getLaneBoard, assignEventArenas, apiErrorMessage, type ArenaCard, type LaneBoard, type LaneGroup } from '../api'
   import { arenaLabel } from '../venue'
+  import { eventTypeOf } from '../eventType'
 
-  const emit = defineEmits(['close', 'openEvent'])
+  const emit = defineEmits<{
+    close: []
+    openEvent: [eventId: string]
+  }>()
 
-  const board = ref(null)
+  const board = ref<LaneBoard | null>(null)
   const loading = ref(true)
   const busy = ref(false)
   const error = ref('')
@@ -14,8 +18,8 @@
   const waiting = computed(() => board.value?.waiting ?? [])
   const arenas = computed(() => board.value?.arenas ?? [])
   const needsMore = computed(() => {
-    const seen = new Set()
-    const extra = []
+    const seen = new Set<string>()
+    const extra: LaneGroup[] = []
     for (const arena of arenas.value) {
       const group = arena.group
       if (!group || seen.has(group.event_id)) continue
@@ -33,25 +37,25 @@
     )
   })
 
-  function groupTitle(group) {
+  function groupTitle(group: LaneGroup) {
     return group.event_name || 'Untitled group'
   }
 
-  function needsLabel(group) {
+  function needsLabel(group: LaneGroup) {
     const have = group.arena_ids?.length ?? 0
     const need = group.suggested_arena_count ?? 1
     if (have >= need) return `${have} arena${have === 1 ? '' : 's'}`
     return `needs ${need} arena${need === 1 ? '' : 's'}${have ? `, has ${have}` : ''}`
   }
 
-  function sessionTime(group) {
+  function sessionTime(group: LaneGroup) {
     if (!group.start_timestamp) return ''
     const date = new Date(group.start_timestamp)
     if (Number.isNaN(date.getTime())) return ''
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   }
 
-  function isSuggested(arena, group) {
+  function isSuggested(arena: ArenaCard, group: LaneGroup | null) {
     return !!group?.suggested_arena_ids?.includes(arena.arena_id)
   }
 
@@ -63,11 +67,12 @@
       if (selectedId.value) {
         const stillAround = [
           ...waiting.value,
-          ...arenas.value.map(arena => arena.group).filter(Boolean),
+          ...arenas.value.map(arena => arena.group).filter((group): group is LaneGroup => !!group),
         ].some(group => group.event_id === selectedId.value)
         if (!stillAround) selectedId.value = ''
       }
-    } catch {
+    } catch (e) {
+      console.error('Failed to load the lane board', e)
       error.value = 'Failed to load lanes.'
     } finally {
       loading.value = false
@@ -76,19 +81,12 @@
 
   onMounted(load)
 
-  function selectGroup(group) {
+  function selectGroup(group: LaneGroup) {
     selectedId.value = selectedId.value === group.event_id ? '' : group.event_id
     error.value = ''
   }
 
-  function apiError(e, fallback) {
-    const detail = e?.response?.data?.detail
-    if (typeof detail === 'string') return detail
-    if (detail?.message) return detail.message
-    return fallback
-  }
-
-  async function tapArena(arena) {
+  async function tapArena(arena: ArenaCard) {
     const occupant = arena.group
     if (occupant && selectedId.value && selectedId.value !== occupant.event_id) {
       error.value = `${arena.name} is already used by ${occupant.event_name}. Clear it first.`
@@ -104,10 +102,10 @@
       return
     }
 
-    const alreadyHere = group.arena_ids?.includes(arena.arena_id)
-    const nextIds = alreadyHere
-      ? group.arena_ids.filter(id => id !== arena.arena_id)
-      : [...(group.arena_ids ?? []), arena.arena_id]
+    const currentIds = group.arena_ids ?? []
+    const nextIds = currentIds.includes(arena.arena_id)
+      ? currentIds.filter(id => id !== arena.arena_id)
+      : [...currentIds, arena.arena_id]
 
     busy.value = true
     error.value = ''
@@ -115,13 +113,14 @@
       await assignEventArenas(group.event_id, nextIds)
       await load()
     } catch (e) {
-      error.value = apiError(e, 'Could not assign that arena.')
+      console.error(`Failed to assign arena ${arena.arena_id} to event ${group.event_id}`, e)
+      error.value = apiErrorMessage(e, 'Could not assign that arena.')
     } finally {
       busy.value = false
     }
   }
 
-  function openGroup(group) {
+  function openGroup(group: LaneGroup) {
     emit('openEvent', group.event_id)
   }
 </script>
@@ -158,7 +157,10 @@
                 :class="{ selected: selectedId === group.event_id }"
                 @click="selectGroup(group)"
               >
-                <span class="waiting-name">{{ groupTitle(group) }}</span>
+                <span class="waiting-name">
+                  {{ groupTitle(group) }}
+                  <span v-if="eventTypeOf(group) === 'tournament'" class="type-badge tournament">Tournament</span>
+                </span>
                 <span class="waiting-meta">
                   {{ group.players.length }} players
                   <span v-if="group.checkfront_booking_code"> · {{ group.checkfront_booking_code }}</span>
@@ -173,7 +175,10 @@
                 :class="{ selected: selectedId === group.event_id }"
                 @click="selectGroup(group)"
               >
-                <span class="waiting-name">{{ groupTitle(group) }}</span>
+                <span class="waiting-name">
+                  {{ groupTitle(group) }}
+                  <span v-if="eventTypeOf(group) === 'tournament'" class="type-badge tournament">Tournament</span>
+                </span>
                 <span class="waiting-meta">Already on {{ arenaLabel(group.arena_ids) }}</span>
                 <span class="waiting-need">{{ needsLabel(group) }}</span>
               </li>
@@ -206,6 +211,7 @@
               </span>
               <span v-if="arena.group" class="arena-group">
                 {{ groupTitle(arena.group) }}
+                <span v-if="eventTypeOf(arena.group) === 'tournament'" class="type-badge tournament">Tournament</span>
                 <span class="arena-group-meta">{{ arena.group.players.length }} players</span>
               </span>
               <span v-else class="arena-open">Open</span>
@@ -312,6 +318,12 @@
 .waiting-need,
 .arena-group-meta {
   font-size: 0.75rem;
+}
+
+.waiting-name .type-badge,
+.arena-group .type-badge {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .selected-hint {

@@ -1,16 +1,31 @@
-<script setup>
+<script setup lang="ts">
   import { ref, onMounted, onUnmounted, watch } from 'vue'
-  import { login, getActiveCheckfrontEvents, getCheckfrontStatus, syncCheckfrontBookings } from '../api'
+  import {
+    login,
+    getActiveCheckfrontEvents,
+    getCheckfrontStatus,
+    syncCheckfrontBookings,
+    errorDetail,
+    errorStatus,
+    type ApiEvent,
+    type CheckfrontStatus,
+  } from '../api'
+  import type { SelectMatchPayload } from '../match'
   import { getCookie, setCookie, deleteCookie } from '../cookies'
   import { getOrCreateClientId } from '../clientId'
   import EventsModal from './EventsModal.vue'
   import LanesBoard from './LanesBoard.vue'
   import { arenaLabel } from '../venue'
+  import { useEventsModal } from '../composables/useEventsModal'
 
   const clientId = getOrCreateClientId()
   const shortClientId = clientId.slice(0, 8)
 
-  const emit = defineEmits(['openConfig', 'selectMatch', 'selectGroup'])
+  const emit = defineEmits<{
+    openConfig: []
+    selectMatch: [payload: SelectMatchPayload]
+    selectGroup: [group: ApiEvent | null]
+  }>()
 
   const showLogin = ref(false)
   const username = ref('')
@@ -18,24 +33,23 @@
   const error = ref('')
   const loading = ref(false)
   const loggedInUser = ref(getCookie('username') ?? '')
-  const showEvents = ref(false)
+  const { showEvents, eventsInitialId, openEvents, closeEvents } = useEventsModal()
   const showLanes = ref(false)
-  const eventsInitialId = ref(null)
 
-  const checkfrontGroups = ref([])
+  const checkfrontGroups = ref<ApiEvent[]>([])
   const selectedGroupId = ref('')
   const groupSearch = ref('')
   const groupsLoading = ref(false)
-  const checkfrontStatus = ref(null)
+  const checkfrontStatus = ref<CheckfrontStatus | null>(null)
   const syncLoading = ref(false)
   const syncMessage = ref('')
-  let groupsPollTimer = null
-  let syncMessageTimer = null
-  let groupSearchTimer = null
+  let groupsPollTimer: ReturnType<typeof setInterval> | null = null
+  let syncMessageTimer: ReturnType<typeof setTimeout> | null = null
+  let groupSearchTimer: ReturnType<typeof setTimeout> | null = null
 
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 
-  function groupLabel(event) {
+  function groupLabel(event: ApiEvent) {
     const where = arenaLabel(event.arena_ids)
     const place = where ? ` · ${where}` : ''
     const code = event.checkfront_booking_code ? ` · ${event.checkfront_booking_code}` : ''
@@ -47,12 +61,13 @@
     if (!loggedInUser.value) return
     try {
       checkfrontStatus.value = await getCheckfrontStatus()
-    } catch {
+    } catch (e) {
+      console.error('Failed to load Checkfront status', e)
       checkfrontStatus.value = null
     }
   }
 
-  function showSyncMessage(message) {
+  function showSyncMessage(message: string) {
     syncMessage.value = message
     if (syncMessageTimer) clearTimeout(syncMessageTimer)
     syncMessageTimer = setTimeout(() => {
@@ -77,8 +92,9 @@
         }
       }
     } catch (e) {
-      const detail = e?.response?.data?.detail
-      if (e?.response?.status === 503) {
+      console.error('Checkfront sync failed', e)
+      const detail = errorDetail(e)
+      if (errorStatus(e) === 503) {
         showSyncMessage('Checkfront credentials are not configured on the server.')
       } else if (typeof detail === 'string') {
         showSyncMessage(detail)
@@ -101,8 +117,9 @@
         selectedGroupId.value = ''
         emit('selectGroup', null)
       }
-    } catch {
+    } catch (e) {
       // Keep last known groups if refresh fails mid-shift
+      console.error('Failed to refresh Checkfront groups; keeping the last known list', e)
     } finally {
       groupsLoading.value = false
     }
@@ -163,13 +180,8 @@
     if (groupSearchTimer) clearTimeout(groupSearchTimer)
   })
 
-  function openEvents(eventId = null) {
-    eventsInitialId.value = eventId
-    showEvents.value = true
-  }
-
   function onEventsClose() {
-    showEvents.value = false
+    closeEvents()
     loadCheckfrontGroups()
   }
 
@@ -182,12 +194,10 @@
     loadCheckfrontGroups()
   }
 
-  function openEventFromLanes(eventId) {
+  function openEventFromLanes(eventId: string) {
     showLanes.value = false
     openEvents(eventId)
   }
-
-  defineExpose({ openEvents, loadCheckfrontGroups })
 
   function openLogin() {
     username.value = ''
@@ -216,12 +226,16 @@
       loggedInUser.value = username.value
       showLogin.value = false
     } catch (e) {
-      if (e?.response?.status === 401) {
+      const status = errorStatus(e)
+      if (status === 401) {
+        // Expected: wrong credentials, already explained to the user
         error.value = 'Wrong password. Please check your password and try again.'
-      } else if (e?.response) {
-        const detail = e.response.data?.detail
+      } else if (status !== undefined) {
+        console.error('Login failed', e)
+        const detail = errorDetail(e)
         error.value = typeof detail === 'string' ? detail : 'Login failed. Please try again.'
       } else {
+        console.error('Login request did not reach the server', e)
         error.value = 'Could not reach the server.'
       }
     } finally {

@@ -6,13 +6,15 @@ declare global {
   }
 }
 
+// Runtime values come from public/env-config.js, which docker/entrypoint.sh fills
+// in with envsubst. Locally (vite dev) it is served unsubstituted, so a value that
+// still starts with '$' means "not set".
 export const config = {
   apiUrl: (window.__env__?.API_URL?.startsWith('$') ? null : window.__env__?.API_URL)
     ?? (import.meta.env.VITE_API_URL || null)
     ?? '',
 }
 
-// Sentinel opponent for a solo (ghost) match — must match GHOST_PLAYER_ID on the
-// API. The ghost scores 0 every throw; displayed to users as "Ghost".
-export const GHOST_PLAYER_ID = '__ghost__'
-export const GHOST_DISPLAY_NAME = 'Ghost'
+export type PairingStyle = 'round_robin' | 'swiss'
+
+export { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './ghost'

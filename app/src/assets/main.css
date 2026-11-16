@@ -238,3 +238,50 @@
 
 .outline-pill-btn:hover:not(:disabled) { background: var(--color-purple-soft); }
 .outline-pill-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Segmented toggle (match style, event type): one bold button per choice */
+.style-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.style-btn {
+  flex: 1;
+  min-height: var(--touch-min);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-bg-secondary);
+  background: var(--color-bg-input);
+  color: var(--color-muted);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.style-btn.active {
+  border-color: var(--color-purple);
+  background: var(--color-purple-soft);
+  color: var(--color-purple);
+}
+
+.style-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Event type badge: purple for tournaments, muted for standard groups */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  color: var(--color-muted);
+}
+
+.type-badge.tournament {
+  background: var(--color-purple-soft);
+  color: var(--color-purple);
+  box-shadow: inset 0 0 0 1px var(--color-purple-edge);
+}

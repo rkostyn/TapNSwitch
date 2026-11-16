@@ -1,8 +1,8 @@
-<script setup>
+<script setup lang="ts">
   import { arenaById } from '../venue'
 
-  defineProps({
-    arenaIds: { type: Array, default: () => [] },
+  withDefaults(defineProps<{ arenaIds?: string[] | null }>(), {
+    arenaIds: () => [],
   })
 </script>
 
