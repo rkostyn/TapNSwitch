@@ -55,16 +55,6 @@ export function countRoundWins(rounds: RoundScores[]): RoundWins {
   return { p1, p2 }
 }
 
-/** Rounds needed to clinch a best-of match: 2 of 3, 3 of 5, 4 of 7, … */
-export function clinchTarget(totalRounds: number): number {
-  return Math.floor(totalRounds / 2) + 1
-}
-
-export function hasClinched(wins: RoundWins, totalRounds: number): boolean {
-  const target = clinchTarget(totalRounds)
-  return wins.p1 >= target || wins.p2 >= target
-}
-
 /**
  * The live round's scores counted alongside the completed rounds, once the
  * live round is complete.
@@ -76,11 +66,11 @@ export function roundsSoFar(completed: RoundScores[], live: RoundScores): RoundS
 }
 
 /**
- * Best-of match: the game ends when the live round is complete and either it
- * was the last round or a player has clinched a majority.
+ * Every configured round is played: the game ends when the live round is
+ * complete and it was the last round. A 2-0 lead still goes to round 3.
  */
-export function isGameOver(liveRoundComplete: boolean, currentRound: number, totalRounds: number, clinched: boolean): boolean {
-  return liveRoundComplete && (currentRound === totalRounds || clinched)
+export function isGameOver(liveRoundComplete: boolean, currentRound: number, totalRounds: number): boolean {
+  return liveRoundComplete && currentRound === totalRounds
 }
 
 export interface RoundRow {

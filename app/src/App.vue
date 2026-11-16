@@ -2,11 +2,15 @@
   import { ref, nextTick, computed, useTemplateRef } from 'vue'
   import ScoreBoard from './components/ScoreBoard.vue'
   import AppHeader from './components/AppHeader.vue'
+  import TvScoreView from './components/TvScoreView.vue'
   import { GHOST_PLAYER_ID, GHOST_DISPLAY_NAME } from './config'
   import { arenaLabel } from './venue'
   import { useEventsModal } from './composables/useEventsModal'
+  import { readDisplayRoute } from './displayRoute'
   import type { ApiEvent } from './api'
   import type { MatchContext, SelectMatchPayload } from './match'
+
+  const displayRoute = readDisplayRoute()
 
   const displayName = (id: string) => (id === GHOST_PLAYER_ID ? GHOST_DISPLAY_NAME : id)
 
@@ -88,7 +92,8 @@
 </script>
 
 <template>
-  <div class="page">
+  <TvScoreView v-if="displayRoute.isDisplay" :arenaId="displayRoute.arenaId" />
+  <div v-else class="page">
     <AppHeader @openConfig="openConfig" @selectMatch="onSelectMatch" @selectGroup="onSelectGroup" />
 
     <div class="content">

@@ -7,7 +7,12 @@ from app.logger import get_logger
 from app.models.event import Event, EventCreate, EventType, PairingStyle
 from app.repositories.documents import new_event_document
 from app.services.errors import ConflictError
-from app.services.event_filters import event_on_date_mongo_filter, event_search_mongo_filter, merge_mongo_filters
+from app.services.event_filters import (
+    event_on_date_mongo_filter,
+    event_search_mongo_filter,
+    is_placeholder_event_doc,
+    merge_mongo_filters,
+)
 from app.venue import suggested_arena_count
 
 logger = get_logger(__name__)
@@ -122,7 +127,11 @@ class EventRepository:
             filters.append(search_filter)
         query = merge_mongo_filters(*filters)
         cursor = collection.find(query, {"_id": 0}).sort("start_timestamp", 1)
-        return [Event(**doc) async for doc in cursor]
+        return [
+            Event(**doc)
+            async for doc in cursor
+            if not is_placeholder_event_doc(doc)
+        ]
 
     async def get_events_by_user(
         self,

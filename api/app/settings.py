@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_ACCEPT_STATUSES = frozenset({"PAID", "CONF", "PEND", "HOLD", "WAIT"})
+# STOP/PREP are Checkfront's arrived / about-to-arrive statuses on the floor.
+DEFAULT_ACCEPT_STATUSES = frozenset({"PAID", "CONF", "PEND", "HOLD", "WAIT", "STOP", "PREP"})
 GROUP_MODES = frozenset({"booking", "session"})
 
 

@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { ApiThrow } from '../../api'
 import {
   THROWS,
-  clinchTarget,
   countRoundWins,
   emptyRound,
-  hasClinched,
   isClutchAvailable,
   isGameOver,
   isPadDisabled,
@@ -64,38 +62,25 @@ describe('round and match outcome', () => {
     expect(countRoundWins([full(10, 10), full(12, 3), full(3, 12), full(1, 0)])).toEqual({ p1: 2, p2: 1 })
   })
 
-  it('clinches on a majority of the scheduled rounds', () => {
-    expect(clinchTarget(1)).toBe(1)
-    expect(clinchTarget(2)).toBe(2)
-    expect(clinchTarget(3)).toBe(2)
-    expect(clinchTarget(5)).toBe(3)
-    expect(clinchTarget(7)).toBe(4)
-    expect(hasClinched({ p1: 2, p2: 0 }, 3)).toBe(true)
-    expect(hasClinched({ p1: 1, p2: 1 }, 3)).toBe(false)
-    expect(hasClinched({ p1: 0, p2: 2 }, 3)).toBe(true)
-  })
-
   it('counts the live round only once it is complete', () => {
     const done = [full(5, 0)]
     expect(roundsSoFar(done, round([5, 0, 0, 0, null], [0, 0, 0, 0, 0]))).toHaveLength(1)
     expect(roundsSoFar(done, full(0, 5))).toHaveLength(2)
   })
 
-  it('ends after the last round, or early once clinched', () => {
+  it('ends only after the last configured round', () => {
     // Round 3 of 3 complete
-    expect(isGameOver(true, 3, 3, false)).toBe(true)
-    // Round 2 of 3 complete with 2-0: short-circuit
-    expect(isGameOver(true, 2, 3, true)).toBe(true)
-    // Round 2 of 3 complete at 1-1: play on
-    expect(isGameOver(true, 2, 3, false)).toBe(false)
+    expect(isGameOver(true, 3, 3)).toBe(true)
+    // Round 2 of 3 complete: play on, even with a 2-0 lead
+    expect(isGameOver(true, 2, 3)).toBe(false)
     // Last round still being thrown
-    expect(isGameOver(false, 3, 3, true)).toBe(false)
+    expect(isGameOver(false, 3, 3)).toBe(false)
   })
 
   it('a 1-1 draw over two rounds is a tie that needs a tie breaker', () => {
     const wins = countRoundWins(roundsSoFar([full(5, 0)], full(0, 5)))
     expect(wins).toEqual({ p1: 1, p2: 1 })
-    expect(isGameOver(true, 2, 2, hasClinched(wins, 2))).toBe(true)
+    expect(isGameOver(true, 2, 2)).toBe(true)
     expect(outcome(wins.p1, wins.p2)).toBe('tie')
   })
 

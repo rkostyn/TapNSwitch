@@ -6,6 +6,7 @@
   import { roundTotal, type PlayerSide, type ScorePayload } from '../scoring/rules'
   import { useMatchSync } from '../composables/useMatchSync'
   import { useMatchScoring } from '../composables/useMatchScoring'
+  import { useTvPublisher } from '../composables/useTvPublisher'
 
   const props = defineProps<{
     player1Name: string
@@ -20,6 +21,7 @@
 
   const sync = useMatchSync(() => props.matchContext)
   const { syncError, finishing } = sync
+  const scoring = useMatchScoring(props, sync)
   const {
     currentRound,
     viewedRound,
@@ -49,10 +51,12 @@
     confirmReset,
     isSelected,
     reset,
-  } = useMatchScoring(props, sync)
+  } = scoring
 
-  // Narrow layouts show one panel at a time
-  const activeTab = ref<'p1' | 'scores' | 'p2'>('p1')
+  useTvPublisher(props, scoring, sync)
+
+  // Narrow layouts show one player's pad at a time; the scores panel is always visible
+  const activeTab = ref<'p1' | 'p2'>('p1')
 
   // Scroll container for the score lines — kept pinned to the bottom as tie-break
   // attempts pile up past the visible five slots
@@ -133,7 +137,6 @@
 
     <div class="tab-bar">
       <button class="tab-btn" :class="{ active: activeTab === 'p1' }" @click="activeTab = 'p1'">{{ leftName }}</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'scores' }" @click="activeTab = 'scores'">Scores</button>
       <button class="tab-btn" :class="{ active: activeTab === 'p2' }" @click="activeTab = 'p2'">{{ rightName }}</button>
     </div>
 
@@ -142,7 +145,7 @@
         <UrbanScore :playerName="leftName" :disabled="leftDisabled" :clutchAvailable="leftClutchAvailable" @score="applyScoreLeft" />
       </div>
 
-      <div class="tab-panel panel-scores" :class="{ active: activeTab === 'scores' }">
+      <div class="tab-panel panel-scores">
       <div class="scoreboard">
         <span class="round-label scoreboard-round">
           {{ showTiebreak ? 'Tie Breaker' : `Round ${displayRound} of ${totalRounds}` }}
@@ -459,6 +462,7 @@
   }
 
   .panel-scores {
+    display: flex;
     width: 100%;
     flex-direction: column;
     align-items: center;

@@ -10,7 +10,6 @@ import {
   THROWS,
   countRoundWins,
   emptyRound,
-  hasClinched,
   isClutchAvailable,
   isGameOver,
   isPadDisabled,
@@ -107,14 +106,13 @@ export function useMatchScoring(props: ScoringProps, sync: MatchSync) {
   const player1Disabled = computed(() => throws1.value > throws2.value)
   const player2Disabled = computed(() => throws2.value > throws1.value)
 
-  // Rounds won so far (the live round counts once it is complete). A majority
-  // clinches the best-of match — 3 of 5, 4 of 7, etc.
+  // Rounds won so far (the live round counts once it is complete)
   const roundWins = computed(() =>
     countRoundWins(roundsSoFar(completedRounds.value, { scores1: scores1.value, scores2: scores2.value }))
   )
-  const clinched = computed(() => hasClinched(roundWins.value, props.totalRounds))
+  // Every configured round is played, even after one player has a majority
   const gameOver = computed(() =>
-    isGameOver(roundComplete.value, currentRound.value, props.totalRounds, clinched.value)
+    isGameOver(roundComplete.value, currentRound.value, props.totalRounds)
   )
 
   const allRoundRows = computed(() =>
@@ -282,6 +280,9 @@ export function useMatchScoring(props: ScoringProps, sync: MatchSync) {
   return {
     // state
     currentRound,
+    scores1,
+    scores2,
+    completedRounds,
     viewedRound,
     tiebreak,
     displayRound,

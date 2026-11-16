@@ -216,6 +216,158 @@ def test_parse_checkfront_api_booking_detail_v3_shape():
     assert booking.item_skus == ["private-event-2hr"]
     assert booking.item_ids == ["20"]
     assert booking.qty == 2
+    assert booking.event_name == "Jordan Smith (YVXL-200626)"
+
+
+def test_parse_uses_first_and_last_when_customer_name_missing():
+    payload = {
+        "booking": {
+            "booking_id": 401,
+            "id": "REAL-281026",
+            "status_id": "STOP",
+            "meta": {
+                "customer_first_name": "Taylor",
+                "customer_last_name": "Nguyen",
+            },
+            "items": {"1": {"id": 20, "sku": "open-throw-1hr", "qty": "1"}},
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert booking.customer_name == "Taylor Nguyen"
+    assert booking.status == "STOP"
+
+
+def test_parse_keeps_booking_without_customer_using_code():
+    payload = {
+        "booking": {
+            "booking_id": 402,
+            "code": "WALK-281026",
+            "status_id": "PAID",
+            "items": {"1": {"id": 21, "sku": "walk-in-1hr", "qty": "4"}},
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert booking.customer_name == "WALK-281026"
+    assert booking.player_names == ["WALK-281026"]
+
+
+def test_parse_names_field_without_thrower_key():
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "fields": {
+                **SAMPLE_BOOKING["booking"]["fields"],
+                "names": "Alex Lee\nCasey Morgan\nDrew Patel",
+            },
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert booking.player_names == ["Jordan Smith", "Alex Lee", "Casey Morgan", "Drew Patel"]
+
+
+def test_parse_thrower_names_from_labeled_custom_field():
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "fields": {
+                "param_4": {"id": "param_4", "lbl": "Thrower Names", "value": "Alex Lee, Casey Morgan"},
+            },
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    assert booking is not None
+    assert "Alex Lee" in booking.player_names
+    assert "Casey Morgan" in booking.player_names
+
+
+def test_parse_fields_list_shape():
+    payload = {
+        "booking": {
+            "booking_id": 410,
+            "code": "NAME-281026",
+            "status_id": "PAID",
+            "customer_name": "Jordan Smith",
+            "fields": [
+                {"id": "thrower_names", "value": "Alex Lee, Casey Morgan"},
+            ],
+        }
+    }
+    booking = parse_checkfront_payload(payload, player_field_keys=["thrower_names"])
+    assert booking is not None
+    assert booking.player_names == ["Jordan Smith", "Alex Lee", "Casey Morgan"]
+
+
+def test_parse_unwraps_field_value_dicts():
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "fields": {
+                **SAMPLE_BOOKING["booking"]["fields"],
+                "thrower_names": {"value": "Alex Lee, Casey Morgan"},
+            },
+        }
+    }
+    booking = parse_checkfront_payload(payload, player_field_keys=["thrower_names"])
+    assert booking is not None
+    assert "Alex Lee" in booking.player_names
+    assert "Casey Morgan" in booking.player_names
+
+
+@pytest.mark.asyncio
+async def test_sync_keeps_real_customer_on_placeholder_sku(monkeypatch):
+    monkeypatch.setenv("CHECKFRONT_GROUP_MODE", "booking")
+    repo = EventRepository(FakeMongoClient())
+    payload = {
+        "booking": {
+            "booking_id": 404,
+            "code": "HPJF-140826",
+            "status_id": "PAID",
+            "customer_name": "Brian Party",
+            "items": {"1": {"id": 9, "sku": "walkinplaceholder", "qty": "6"}},
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    event = await sync_checkfront_booking(repo, booking)
+    assert event is not None
+    assert event.event_name == "Brian Party (HPJF-140826)"
+    assert event.players == ["Brian Party"]
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_placeholder_bookings(monkeypatch):
+    monkeypatch.setenv("CHECKFRONT_GROUP_MODE", "booking")
+    repo = EventRepository(FakeMongoClient())
+    payload = {
+        "booking": {
+            "booking_id": 403,
+            "code": "NSKZ-200626",
+            "status_id": "PAID",
+            "customer_name": "Leagueplaceholder",
+            "items": {"1": {"id": 9, "sku": "leagueplaceholder", "qty": "1"}},
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    event = await sync_checkfront_booking(repo, booking)
+    assert event is None
+
+
+@pytest.mark.asyncio
+async def test_sync_accepts_arrived_stop_status(monkeypatch):
+    monkeypatch.setenv("CHECKFRONT_GROUP_MODE", "booking")
+    repo = EventRepository(FakeMongoClient())
+    payload = {
+        "booking": {
+            **SAMPLE_BOOKING["booking"],
+            "status": "STOP",
+        }
+    }
+    booking = parse_checkfront_payload(payload)
+    event = await sync_checkfront_booking(repo, booking)
+    assert event is not None
+    assert event.players == ["Jordan Smith"]
 
 
 @pytest.mark.asyncio
@@ -226,7 +378,7 @@ async def test_pull_checkfront_bookings(monkeypatch):
         async def list_bookings(self, *, start_date="today", status_id=None):
             return [API_INDEX_ENTRY]
 
-        async def get_booking(self, booking_id: str):
+        async def get_booking(self, booking_id: str, *, code: str | None = None):
             return API_BOOKING_DETAIL
 
     repo = EventRepository(FakeMongoClient())

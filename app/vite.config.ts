@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
         '/player': { target: API_TARGET, changeOrigin: true },
         '/lanes':  { target: API_TARGET, changeOrigin: true },
         '/venue':  { target: API_TARGET, changeOrigin: true },
+        '/tv':     { target: API_TARGET, changeOrigin: true },
         '/integrations': { target: API_TARGET, changeOrigin: true },
       },
     },

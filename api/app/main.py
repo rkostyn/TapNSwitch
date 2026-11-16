@@ -25,6 +25,7 @@ from app.routes.admin import login_router as admin_login_router
 from app.routes.admin import router as admin_router
 from app.routes.auth import router as auth_router
 from app.routes.checkfront import router as checkfront_router
+from app.routes.display import router as display_router
 from app.routes.errors import domain_error_handler
 from app.routes.event import router as event_router
 from app.routes.lane import router as lane_router
@@ -186,5 +187,6 @@ app.include_router(event_router)
 app.include_router(player_router)
 app.include_router(checkfront_router)
 app.include_router(lane_router)
+app.include_router(display_router)
 app.include_router(admin_login_router)
 app.include_router(admin_router)
